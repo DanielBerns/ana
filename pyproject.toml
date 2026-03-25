@@ -1,0 +1,12 @@
+[project]
+name = "ana"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+# ana/pyproject.toml (append this to the bottom)
+
+[tool.uv.workspace]
+members = ["apps/*", "packages/*"]

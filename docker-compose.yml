@@ -1,0 +1,53 @@
+# ana/docker-compose.yml
+
+version: "3.8"
+
+services:
+  # 1. The Event Broker
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: ana_broker
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"   # AMQP protocol port for FastStream components
+      - "15672:15672" # Management UI (accessible via browser)
+    networks:
+      - ana_network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. The Database (Used by Memory, Controller, and Actor)
+  postgres:
+    image: postgres:16-alpine
+    container_name: ana_database
+    environment:
+      POSTGRES_USER: ana_admin
+      POSTGRES_PASSWORD: ana_password
+      # In a real setup, you'd create separate logical DBs.
+      # For local dev, we can use one and separate by schemas.
+      POSTGRES_DB: ana_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ana_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ana_admin -d ana_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  # This volume will act as the local disk for the Store component
+  store_blobs:
+
+networks:
+  ana_network:
+    driver: bridge
