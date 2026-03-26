@@ -1,7 +1,9 @@
-import uuid
+import os
+import httpx
 import structlog
-from faststream import FastStream
-from faststream.rabbit import RabbitBroker
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from faststream.rabbit.fastapi import RabbitRouter
 
 # Import our shared data contracts
 from shared.events import (
@@ -16,20 +18,29 @@ from shared.events import (
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer() #
+        structlog.processors.JSONRenderer() # Fulfills strict JSON logging requirement
     ]
 )
 logger = structlog.get_logger("controller_component")
 
-# --- Broker Setup ---
-broker = RabbitBroker("amqp://guest:guest@localhost:5672/")
-app = FastStream(broker)
+# ==========================================
+# DYNAMIC CONFIGURATION STATE
+# ==========================================
+# This is the ONLY hardcoded variable allowed. In production, this is injected via an environment variable.
+CONFIGURATOR_URL = os.getenv("CONFIGURATOR_URL", "http://localhost:8005/config/controller")
+
+# Global dictionary to hold the config fetched during startup
+DYNAMIC_CONFIG = {}
+
+# --- FastStream Router Setup ---
+# Initialize the router WITHOUT a hardcoded RabbitMQ URL
+router = RabbitRouter()
 
 # ==========================================
 # EVENT CONSUMERS & PRODUCERS
 # ==========================================
 
-@broker.subscriber("perceptions")
+@router.subscriber("perceptions")
 async def handle_perception(event: PerceptionGathered):
     """
     Consumes autonomous scraping events.
@@ -40,15 +51,15 @@ async def handle_perception(event: PerceptionGathered):
     # 1. We need history/context before making a decision.
     # We publish a request to the Memory component.
     request_event = ContextRequested(
-        correlation_id=event.correlation_id, # Pass the trace ID along!
+        correlation_id=event.correlation_id,
         query_reference=event.source_url,
         reply_to_topic="context_responses"
     )
 
-    await broker.publish(request_event, queue="context_requests")
+    await router.broker.publish(request_event, queue="context_requests")
     log.info("context_requested")
 
-@broker.subscriber("user_prompts")
+@router.subscriber("user_prompts")
 async def handle_user_prompt(event: UserPromptReceived):
     """
     Consumes chat messages from the Proxy Website.
@@ -63,10 +74,10 @@ async def handle_user_prompt(event: UserPromptReceived):
         reply_to_topic="context_responses"
     )
 
-    await broker.publish(request_event, queue="context_requests")
+    await router.broker.publish(request_event, queue="context_requests")
     log.info("chat_history_requested")
 
-@broker.subscriber("context_responses")
+@router.subscriber("context_responses")
 async def handle_context_provided(event: ContextProvided):
     """
     Consumes the history returned by the Memory component, makes a decision,
@@ -76,9 +87,9 @@ async def handle_context_provided(event: ContextProvided):
     log.info("context_received", payload={"history_items": len(event.history)})
 
     # --- HEXAGONAL ARCHITECTURE DOMAIN LOGIC GOES HERE ---
-    # Here is where you would evaluate the Perception/Prompt + Context
-    # (e.g., passing it to an LLM, a rules engine, etc.)
-    # For now, we mock the decision:
+    # In a mature system, you might use settings from DYNAMIC_CONFIG here
+    # (e.g., maximum retries, threshold values, or AI model parameters).
+
     instruction = "process_data" if not event.user_id else "generate_chat_reply"
 
     # Issue the command to the Actor
@@ -89,9 +100,51 @@ async def handle_context_provided(event: ContextProvided):
         context_data={"mock_decision": "success"}
     )
 
-    await broker.publish(command, queue="commands")
+    await router.broker.publish(command, queue="commands")
     log.info("command_issued", payload={"instruction": instruction})
 
-@app.after_startup
-async def startup():
-    logger.info("controller_startup_complete")
+
+# ==========================================
+# DIAGNOSTIC API & APP LIFECYCLE
+# ==========================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Fetches dynamic config and manages the startup of the Broker connection."""
+    global DYNAMIC_CONFIG
+
+    # 1. Fetch Dynamic Configuration from the Configurator Component
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(CONFIGURATOR_URL)
+            response.raise_for_status()
+            DYNAMIC_CONFIG = response.json()
+            logger.info("config_fetched_successfully", payload={"configurator_url": CONFIGURATOR_URL})
+        except Exception as e:
+            logger.error("configurator_unreachable", payload={"error": str(e)})
+            raise RuntimeError(f"Cannot start Controller without configuration from {CONFIGURATOR_URL}") from e
+
+    # 2. Connect to the Event Broker dynamically using the fetched URL
+    rabbitmq_url = DYNAMIC_CONFIG.get("rabbitmq_url")
+    if not rabbitmq_url:
+        raise RuntimeError("Configuration missing 'rabbitmq_url'")
+
+    await router.broker.connect(rabbitmq_url)
+
+    # 3. Start the FastStream context
+    async with router.lifespan_context(app):
+        logger.info("controller_startup_complete")
+        yield
+
+# Initialize the FastAPI app and attach the FastStream router
+app = FastAPI(lifespan=lifespan, title="Ana Controller Component")
+app.include_router(router)
+
+@app.get("/diagnostic")
+async def diagnostic_endpoint():
+    """Lightweight read-only API for the Inspector."""
+    return {
+        "status": "healthy",
+        "component": "controller",
+        "active_config": DYNAMIC_CONFIG
+    }

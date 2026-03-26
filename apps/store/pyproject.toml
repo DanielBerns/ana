@@ -8,6 +8,7 @@ dependencies = [
     "aiofiles>=25.1.0",
     "apscheduler>=3.11.2",
     "fastapi>=0.135.2",
+    "httpx>=0.28.1",
     "python-multipart>=0.0.22",
     "structlog>=25.5.0",
     "uvicorn>=0.42.0",

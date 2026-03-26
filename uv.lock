@@ -22,6 +22,7 @@ source = { virtual = "apps/actor" }
 dependencies = [
     { name = "fastapi" },
     { name = "faststream", extra = ["rabbit"] },
+    { name = "httpx" },
     { name = "shared" },
     { name = "structlog" },
     { name = "uvicorn" },
@@ -31,6 +32,7 @@ dependencies = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.135.2" },
     { name = "faststream", extras = ["rabbit"], specifier = ">=0.6.7" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "shared", editable = "packages/shared" },
     { name = "structlog", specifier = ">=25.5.0" },
     { name = "uvicorn", specifier = ">=0.42.0" },
@@ -235,16 +237,22 @@ name = "controller"
 version = "0.1.0"
 source = { virtual = "apps/controller" }
 dependencies = [
+    { name = "fastapi" },
     { name = "faststream", extra = ["cli", "rabbit"] },
+    { name = "httpx" },
     { name = "shared" },
     { name = "structlog" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", specifier = ">=0.135.2" },
     { name = "faststream", extras = ["cli", "rabbit"], specifier = ">=0.6.7" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "shared", editable = "packages/shared" },
     { name = "structlog", specifier = ">=25.5.0" },
+    { name = "uvicorn", specifier = ">=0.42.0" },
 ]
 
 [[package]]
@@ -543,6 +551,7 @@ dependencies = [
     { name = "asyncpg" },
     { name = "fastapi" },
     { name = "faststream", extra = ["rabbit"] },
+    { name = "httpx" },
     { name = "shared" },
     { name = "sqlalchemy" },
     { name = "structlog" },
@@ -555,6 +564,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "fastapi", specifier = ">=0.135.2" },
     { name = "faststream", extras = ["rabbit"], specifier = ">=0.6.7" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "shared", editable = "packages/shared" },
     { name = "sqlalchemy", specifier = ">=2.0.48" },
     { name = "structlog", specifier = ">=25.5.0" },
@@ -1078,6 +1088,7 @@ dependencies = [
     { name = "aiofiles" },
     { name = "apscheduler" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "python-multipart" },
     { name = "structlog" },
     { name = "uvicorn" },
@@ -1088,6 +1099,7 @@ requires-dist = [
     { name = "aiofiles", specifier = ">=25.1.0" },
     { name = "apscheduler", specifier = ">=3.11.2" },
     { name = "fastapi", specifier = ">=0.135.2" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "python-multipart", specifier = ">=0.0.22" },
     { name = "structlog", specifier = ">=25.5.0" },
     { name = "uvicorn", specifier = ">=0.42.0" },

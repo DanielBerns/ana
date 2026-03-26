@@ -1,4 +1,6 @@
+import os
 import asyncio
+import httpx
 import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -7,7 +9,7 @@ from faststream.rabbit.fastapi import RabbitRouter
 # Import our shared data contracts
 from shared.events import CommandIssued, ActionRequired, TaskCompleted
 
-# --- Configuration & Logging Setup ---
+# --- Logging Setup ---
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
@@ -16,11 +18,18 @@ structlog.configure(
 )
 logger = structlog.get_logger("actor_component")
 
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
+# ==========================================
+# DYNAMIC CONFIGURATION STATE
+# ==========================================
+# This is the ONLY hardcoded variable allowed. In production, this would be injected via an environment variable.
+CONFIGURATOR_URL = os.getenv("CONFIGURATOR_URL", "http://localhost:8005/config/actor")
+
+# Global dictionary to hold the config fetched during startup
+DYNAMIC_CONFIG = {}
 
 # --- FastStream Router Setup ---
-# Using RabbitRouter so we can expose the HTTP diagnostic API alongside event consumers
-router = RabbitRouter(RABBITMQ_URL)
+# Initialize the router WITHOUT a hardcoded RabbitMQ URL
+router = RabbitRouter()
 
 # ==========================================
 # EVENT CONSUMERS & PRODUCERS (Driving & Driven Ports)
@@ -36,10 +45,10 @@ async def handle_command(command: CommandIssued):
     log.info("command_received", payload={"instruction": command.instruction})
 
     # --- HEXAGONAL ARCHITECTURE DOMAIN LOGIC GOES HERE ---
-    # This is where the actual "work" happens (e.g., querying an external API,
-    # processing data, formatting a response).
-    # We will mock a slight delay to represent work being done.
-    await asyncio.sleep(1)
+
+    # Let's use a dynamic config variable for our mocked work timeout!
+    timeout = DYNAMIC_CONFIG.get("default_timeout_seconds", 1)
+    await asyncio.sleep(timeout)
 
     try:
         if command.instruction == "generate_chat_reply":
@@ -54,8 +63,7 @@ async def handle_command(command: CommandIssued):
             log.info("action_required_published", payload={"action_type": action.action_type})
 
         elif command.instruction == "process_data":
-            # For autonomous scraping, we might not need to chat back to a user,
-            # but we might trigger an internal action.
+            # For autonomous scraping, we might trigger an internal action.
             log.info("data_processed_successfully")
 
         # 2. Regardless of the instruction, we MUST publish a TaskCompleted event
@@ -88,7 +96,28 @@ async def handle_command(command: CommandIssued):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manages the startup and shutdown of the Broker connection."""
+    """Fetches dynamic config and manages the startup of the Broker connection."""
+    global DYNAMIC_CONFIG
+
+    # 1. Fetch Dynamic Configuration from the Configurator Component
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(CONFIGURATOR_URL)
+            response.raise_for_status()
+            DYNAMIC_CONFIG = response.json()
+            logger.info("config_fetched_successfully", payload={"configurator_url": CONFIGURATOR_URL})
+        except Exception as e:
+            logger.error("configurator_unreachable", payload={"error": str(e)})
+            raise RuntimeError(f"Cannot start Actor without configuration from {CONFIGURATOR_URL}") from e
+
+    # 2. Connect to the Event Broker dynamically using the fetched URL
+    rabbitmq_url = DYNAMIC_CONFIG.get("rabbitmq_url")
+    if not rabbitmq_url:
+        raise RuntimeError("Configuration missing 'rabbitmq_url'")
+
+    await router.broker.connect(rabbitmq_url)
+
+    # 3. Start the FastStream context
     async with router.lifespan_context(app):
         logger.info("actor_startup_complete")
         yield
@@ -103,5 +132,5 @@ async def diagnostic_endpoint():
     return {
         "status": "healthy",
         "component": "actor",
-        "broker_connected": True
+        "active_config": DYNAMIC_CONFIG
     }
