@@ -1,0 +1,19 @@
+# apps/configurator/src/configurator/settings.yaml
+global:
+  rabbitmq_url: "amqp://guest:guest@localhost:5672/"
+  database_url: "postgresql+asyncpg://ana_admin:ana_password@localhost:5432/ana_db"
+
+components:
+  interface:
+    proxy_website_url: "http://mock-proxy.local/api/receive-reply"
+    store_api_url: "http://localhost:8001/files"
+    scraping_interval_minutes: 10
+  store:
+    ttl_seconds: 604800 # 7 days
+    storage_dir: "/tmp/ana_store"
+  controller:
+    max_retries: 3
+  actor:
+    default_timeout_seconds: 30
+  memory:
+    history_limit: 5
