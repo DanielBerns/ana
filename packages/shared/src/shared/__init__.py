@@ -8,6 +8,7 @@ from .events import (
     ActionRequired,
     TaskCompleted,
 )
+from .config import setup_logger, fetch_dynamic_config
 
 __all__ = [
     "BaseEvent",
@@ -18,4 +19,6 @@ __all__ = [
     "CommandIssued",
     "ActionRequired",
     "TaskCompleted",
+    "setup_logger",
+    "fetch_dynamic_config"
 ]

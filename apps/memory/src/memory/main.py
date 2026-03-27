@@ -1,7 +1,4 @@
-import os
 import uuid
-import httpx
-import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from datetime import datetime, timezone
@@ -12,46 +9,26 @@ from sqlalchemy.orm import declarative_base, Mapped, mapped_column
 from sqlalchemy import String, DateTime, select
 from faststream.rabbit.fastapi import RabbitRouter
 
-# Import our shared data contracts
+# Import our shared data contracts and config utilities
 from shared.events import TaskCompleted, ContextRequested, ContextProvided
+from shared.config import setup_logger, fetch_dynamic_config
 
 # --- Logging Setup ---
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer() # Fulfills strict JSON logging requirement
-    ]
-)
-logger = structlog.get_logger("memory_component")
+logger = setup_logger("memory_component")
 
 # ==========================================
 # DYNAMIC CONFIGURATION STATE (Synchronous Boot)
 # ==========================================
-# This is the ONLY hardcoded variable allowed. In production, this is injected via an environment variable.
-CONFIGURATOR_URL = os.getenv("CONFIGURATOR_URL", "http://localhost:8005/config/memory")
+DYNAMIC_CONFIG = fetch_dynamic_config("memory", logger)
 
-# 1. Fetch config synchronously on module load using httpx
-try:
-    logger.info("fetching_configuration", payload={"url": CONFIGURATOR_URL})
-    with httpx.Client(timeout=5.0) as client:
-        response = client.get(CONFIGURATOR_URL)
-        response.raise_for_status()
-        DYNAMIC_CONFIG = response.json()
-    logger.info("config_fetched_successfully")
-except Exception as e:
-    logger.error("configurator_unreachable", payload={"error": str(e)})
-    raise RuntimeError(f"Cannot start Memory without configuration from {CONFIGURATOR_URL}") from e
-
-# 2. Extract strictly required connection URLs
-rabbitmq_url = DYNAMIC_CONFIG.get("rabbitmq_url")
+# Extract strictly required connection URLs
+rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
 database_url = DYNAMIC_CONFIG.get("database_url")
 
-if not rabbitmq_url:
-    raise RuntimeError("Configuration missing 'rabbitmq_url'")
 if not database_url:
     raise RuntimeError("Configuration missing 'database_url'")
 
-# 3. Initialize the Router and Database Engine WITH the fetched URLs
+# Initialize the Router and Database Engine WITH the fetched URLs
 router = RabbitRouter(rabbitmq_url)
 engine = create_async_engine(database_url, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)

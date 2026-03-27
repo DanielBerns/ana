@@ -1,47 +1,24 @@
-import os
 import uuid
-import httpx
-import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import BaseModel
 from faststream.rabbit.fastapi import RabbitRouter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# Import our strictly typed domain contracts
+# Import our strictly typed domain contracts and shared config utilities
 from shared.events import UserPromptReceived, ActionRequired, PerceptionGathered
+from shared.config import setup_logger, fetch_dynamic_config
 
 # --- Logging Setup ---
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer() # Fulfills strict JSON logging requirement
-    ]
-)
-logger = structlog.get_logger("interface_component")
+logger = setup_logger("interface_component")
 
 # ==========================================
 # DYNAMIC CONFIGURATION STATE
 # ==========================================
-CONFIGURATOR_URL = os.getenv("CONFIGURATOR_URL", "http://localhost:8005/config/interface")
+DYNAMIC_CONFIG = fetch_dynamic_config("interface", logger)
+rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
 
-# 1. Fetch config synchronously on module load using httpx
-try:
-    logger.info("fetching_configuration", payload={"url": CONFIGURATOR_URL})
-    with httpx.Client(timeout=5.0) as client:
-        response = client.get(CONFIGURATOR_URL)
-        response.raise_for_status()
-        DYNAMIC_CONFIG = response.json()
-    logger.info("config_fetched_successfully")
-except Exception as e:
-    logger.error("configurator_unreachable", payload={"error": str(e)})
-    raise RuntimeError(f"Cannot start Interface without configuration from {CONFIGURATOR_URL}") from e
-
-rabbitmq_url = DYNAMIC_CONFIG.get("rabbitmq_url")
-if not rabbitmq_url:
-    raise RuntimeError("Configuration missing 'rabbitmq_url'")
-
-# 2. Initialize the router WITH the fetched URL
+# Initialize the router WITH the fetched URL
 router = RabbitRouter(rabbitmq_url)
 scheduler = AsyncIOScheduler()
 
