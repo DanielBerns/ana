@@ -19,17 +19,29 @@ structlog.configure(
 logger = structlog.get_logger("actor_component")
 
 # ==========================================
-# DYNAMIC CONFIGURATION STATE
+# DYNAMIC CONFIGURATION STATE (Synchronous Boot)
 # ==========================================
-# This is the ONLY hardcoded variable allowed. In production, this would be injected via an environment variable.
+# This is the ONLY hardcoded variable allowed. In production, this is injected via an environment variable.
 CONFIGURATOR_URL = os.getenv("CONFIGURATOR_URL", "http://localhost:8005/config/actor")
 
-# Global dictionary to hold the config fetched during startup
-DYNAMIC_CONFIG = {}
+# 1. Fetch config synchronously on module load using httpx
+try:
+    logger.info("fetching_configuration", payload={"url": CONFIGURATOR_URL})
+    with httpx.Client(timeout=5.0) as client:
+        response = client.get(CONFIGURATOR_URL)
+        response.raise_for_status()
+        DYNAMIC_CONFIG = response.json()
+    logger.info("config_fetched_successfully")
+except Exception as e:
+    logger.error("configurator_unreachable", payload={"error": str(e)})
+    raise RuntimeError(f"Cannot start Actor without configuration from {CONFIGURATOR_URL}") from e
 
-# --- FastStream Router Setup ---
-# Initialize the router WITHOUT a hardcoded RabbitMQ URL
-router = RabbitRouter()
+rabbitmq_url = DYNAMIC_CONFIG.get("rabbitmq_url")
+if not rabbitmq_url:
+    raise RuntimeError("Configuration missing 'rabbitmq_url'")
+
+# 2. Initialize the router WITH the fetched URL
+router = RabbitRouter(rabbitmq_url)
 
 # ==========================================
 # EVENT CONSUMERS & PRODUCERS (Driving & Driven Ports)
@@ -46,7 +58,7 @@ async def handle_command(command: CommandIssued):
 
     # --- HEXAGONAL ARCHITECTURE DOMAIN LOGIC GOES HERE ---
 
-    # Let's use a dynamic config variable for our mocked work timeout!
+    # Use the dynamic config variable for our mocked work timeout!
     timeout = DYNAMIC_CONFIG.get("default_timeout_seconds", 1)
     await asyncio.sleep(timeout)
 
@@ -96,28 +108,8 @@ async def handle_command(command: CommandIssued):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Fetches dynamic config and manages the startup of the Broker connection."""
-    global DYNAMIC_CONFIG
-
-    # 1. Fetch Dynamic Configuration from the Configurator Component
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(CONFIGURATOR_URL)
-            response.raise_for_status()
-            DYNAMIC_CONFIG = response.json()
-            logger.info("config_fetched_successfully", payload={"configurator_url": CONFIGURATOR_URL})
-        except Exception as e:
-            logger.error("configurator_unreachable", payload={"error": str(e)})
-            raise RuntimeError(f"Cannot start Actor without configuration from {CONFIGURATOR_URL}") from e
-
-    # 2. Connect to the Event Broker dynamically using the fetched URL
-    rabbitmq_url = DYNAMIC_CONFIG.get("rabbitmq_url")
-    if not rabbitmq_url:
-        raise RuntimeError("Configuration missing 'rabbitmq_url'")
-
-    await router.broker.connect(rabbitmq_url)
-
-    # 3. Start the FastStream context
+    """Starts the FastStream context."""
+    # FastStream's lifespan_context handles the RabbitMQ connection automatically using the URL we passed above!
     async with router.lifespan_context(app):
         logger.info("actor_startup_complete")
         yield
