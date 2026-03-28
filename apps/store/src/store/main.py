@@ -1,31 +1,26 @@
 import os
 import time
 import uuid
-import httpx
-import structlog
 import aiofiles
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+# Import our shared config utilities
+from shared.config import setup_logger, fetch_dynamic_config
+
 # --- Logging Setup ---
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer() # Fulfills strict JSON logging requirement
-    ]
-)
-logger = structlog.get_logger("store_component")
+logger = setup_logger("store_component")
 
 # ==========================================
-# DYNAMIC CONFIGURATION STATE
+# DYNAMIC CONFIGURATION STATE (Synchronous Boot)
 # ==========================================
-# This is the ONLY hardcoded variable allowed. In production, this is injected via an environment variable.
-CONFIGURATOR_URL = os.getenv("CONFIGURATOR_URL", "http://localhost:8005/config/store")
+DYNAMIC_CONFIG = fetch_dynamic_config("store", logger)
+storage_dir = DYNAMIC_CONFIG.get("storage_dir")
 
-# Global dictionary to hold the config fetched during startup
-DYNAMIC_CONFIG = {}
+if not storage_dir:
+    raise RuntimeError("Configuration missing 'storage_dir'")
 
 # --- Scheduler Setup ---
 scheduler = AsyncIOScheduler()
@@ -41,7 +36,6 @@ async def enforce_ttl_policy():
     current_time = time.time()
     deleted_count = 0
 
-    storage_dir = DYNAMIC_CONFIG.get("storage_dir")
     ttl_seconds = int(DYNAMIC_CONFIG.get("ttl_seconds", 604800)) # Default to 7 days
 
     if not storage_dir or not os.path.exists(storage_dir):
@@ -68,29 +62,13 @@ async def enforce_ttl_policy():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Fetches dynamic config, ensures storage exists, and starts the scheduler."""
-    global DYNAMIC_CONFIG
+    """Ensures storage exists, and starts the scheduler."""
 
-    # 1. Fetch Dynamic Configuration from the Configurator Component
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(CONFIGURATOR_URL)
-            response.raise_for_status()
-            DYNAMIC_CONFIG = response.json()
-            logger.info("config_fetched_successfully", payload={"configurator_url": CONFIGURATOR_URL})
-        except Exception as e:
-            logger.error("configurator_unreachable", payload={"error": str(e)})
-            raise RuntimeError(f"Cannot start Store without configuration from {CONFIGURATOR_URL}") from e
-
-    # 2. Ensure the dynamically configured storage directory exists
-    storage_dir = DYNAMIC_CONFIG.get("storage_dir")
-    if not storage_dir:
-        raise RuntimeError("Configuration missing 'storage_dir'")
-
+    # 1. Ensure the dynamically configured storage directory exists
     os.makedirs(storage_dir, exist_ok=True)
     logger.info("storage_directory_verified", payload={"path": storage_dir})
 
-    # 3. Start the background garbage collection scheduler
+    # 2. Start the background garbage collection scheduler
     # We run the TTL cleanup check every hour
     scheduler.add_job(enforce_ttl_policy, 'interval', hours=1)
     scheduler.start()
@@ -111,8 +89,6 @@ async def upload_file(file: UploadFile = File(...)):
     """Receives a heavy payload and returns a Claim Check URI."""
     correlation_id = str(uuid.uuid4())
     log = logger.bind(correlation_id=correlation_id)
-
-    storage_dir = DYNAMIC_CONFIG.get("storage_dir")
 
     # Generate a unique filename to prevent collisions
     safe_filename = f"{uuid.uuid4().hex}_{file.filename}"
@@ -139,7 +115,6 @@ async def upload_file(file: UploadFile = File(...)):
 @app.get("/files/{filename}")
 async def get_file(filename: str):
     """Serves a previously uploaded file."""
-    storage_dir = DYNAMIC_CONFIG.get("storage_dir")
     file_path = os.path.join(storage_dir, filename)
 
     if not os.path.exists(file_path):
@@ -150,7 +125,6 @@ async def get_file(filename: str):
 @app.get("/diagnostic")
 async def diagnostic_endpoint():
     """Lightweight read-only API for the Inspector."""
-    storage_dir = DYNAMIC_CONFIG.get("storage_dir")
     files_count = len(os.listdir(storage_dir)) if storage_dir and os.path.exists(storage_dir) else 0
 
     return {

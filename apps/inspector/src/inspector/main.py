@@ -1,29 +1,21 @@
-import os
 import asyncio
 import httpx
-import structlog
-from contextlib import asynccontextmanager
+import secrets
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-import secrets
+
+# Import our shared config utilities
+from shared.config import setup_logger, fetch_dynamic_config
 
 # --- Logging Setup ---
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer() # Fulfills strict JSON logging requirement
-    ]
-)
-logger = structlog.get_logger("inspector_component")
+logger = setup_logger("inspector_component")
 
 # ==========================================
-# DYNAMIC CONFIGURATION STATE
+# DYNAMIC CONFIGURATION STATE (Synchronous Boot)
 # ==========================================
-# The ONLY hardcoded variable allowed.
-CONFIGURATOR_URL = os.getenv("CONFIGURATOR_URL", "http://localhost:8005/config/inspector")
+DYNAMIC_CONFIG = fetch_dynamic_config("inspector", logger)
 
-DYNAMIC_CONFIG = {}
 security = HTTPBasic()
 
 # ==========================================
@@ -56,24 +48,8 @@ async def fetch_diagnostic(client: httpx.AsyncClient, name: str, url: str):
         logger.error("diagnostic_fetch_failed", payload={"component": name, "error": str(e)})
         return name, {"status": "unreachable", "error": str(e)}
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Fetches dynamic config during startup."""
-    global DYNAMIC_CONFIG
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(CONFIGURATOR_URL)
-            response.raise_for_status()
-            DYNAMIC_CONFIG = response.json()
-            logger.info("config_fetched_successfully")
-        except Exception as e:
-            logger.error("configurator_unreachable", payload={"error": str(e)})
-            raise RuntimeError(f"Cannot start Inspector without configuration.") from e
-
-    yield
-
-app = FastAPI(lifespan=lifespan, title="Ana Inspector Dashboard")
+# Initialize the FastAPI app
+app = FastAPI(title="Ana Inspector Dashboard")
 
 # ==========================================
 # DASHBOARD ENDPOINT
