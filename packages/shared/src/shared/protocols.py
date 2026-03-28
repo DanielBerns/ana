@@ -1,10 +1,18 @@
 from typing import Protocol, Any, Optional
 from .events import BaseEvent
 
-class EventHandler(Protocol):
+class Configurable(Protocol):
+    """Base protocol for dynamically configurable objects."""
+    def update_config(self, params: dict[str, Any]) -> None:
+        """
+        Applies operational config on the fly.
+        Must raise ValueError or KeyError if the parameters are invalid.
+        """
+        ...
+
+class EventHandler(Configurable, Protocol):
     """
     Reacts to events, encapsulates external interactions, and emits new events.
-    Must be able to register itself with a ComponentHost.
     """
     async def register(self, host: "ComponentHost") -> None:
         """Registers itself with the host for specific event types."""
@@ -14,28 +22,26 @@ class EventHandler(Protocol):
         """The core logic encapsulated within the handler."""
         ...
 
-class EventSource(Protocol):
+class EventSource(Configurable, Protocol):
     """
-    Generates events autonomously and eventually stops.
-    Must be registered with a ComponentHost to publish events.
+    Generates events autonomously.
     """
     async def register(self, host: "ComponentHost") -> None:
         """Links the source to the host before running."""
         ...
 
     async def start(self) -> None:
-        """The internal script/clock that emits events and terminates."""
+        """Starts the internal script/clock."""
+        ...
+
+    async def stop(self) -> None:
+        """Gracefully stops the event generation."""
         ...
 
 class ComponentHost(Protocol):
-    """
-    The interface exposed by the application facades (Controller, Actor, Interface).
-    It acts as the bridge between the messaging broker and the domain logic.
-    """
+    """The interface exposed by the application facades."""
     async def publish(self, event: BaseEvent, queue: str) -> None:
-        """Allows handlers and sources to emit new events to a specific queue."""
         ...
 
     async def subscribe(self, topic: str, handler: EventHandler) -> None:
-        """Allows handlers to register themselves to listen to specific topics."""
         ...

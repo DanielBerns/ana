@@ -76,3 +76,19 @@ class TaskCompleted(BaseEvent):
     task_name: str
     status: Literal["success", "failure"]
     result_summary: str
+
+# ==========================================
+# 5. CONTROL PLANE & LIFECYCLE EVENTS
+# ==========================================
+class ConfigurationUpdated(BaseEvent):
+    """Published by the Configurator or Admin to trigger a runtime config reload."""
+    event_type: Literal["ConfigurationUpdated"] = "ConfigurationUpdated"
+    target_component: str  # e.g., "interface", "actor", or "all"
+    new_configuration: dict[str, Any]
+
+class SystemFatalError(BaseEvent):
+    """Published by any component that encounters an unrecoverable state (e.g., bad config)."""
+    event_type: Literal["SystemFatalError"] = "SystemFatalError"
+    component: str
+    error_reason: str
+    bad_configuration: dict[str, Any]
