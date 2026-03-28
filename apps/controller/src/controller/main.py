@@ -13,7 +13,7 @@ from shared.config import setup_logger, fetch_dynamic_config
 from shared.protocols import EventHandler, ComponentHost, Configurable
 
 # Import the domain logic
-from controller.domain.rules import RuleEngine, HumanInteractionRule, MaxRetriesRule
+from .domain.rules import RuleEngine, HumanInteractionRule, MaxRetriesRule
 
 # --- Logging Setup ---
 logger = setup_logger("controller_component")
@@ -202,5 +202,6 @@ async def diagnostic_endpoint():
         "status": "healthy",
         "component": "controller",
         "active_config": DYNAMIC_CONFIG,
-        "active_rules": [type(r).__name__ for r in rule_engine.rules]
+        # Access the rule engine through the handler instance!
+        "active_rules": [type(r).__name__ for r in context_provided_handler.rule_engine.rules]
     }

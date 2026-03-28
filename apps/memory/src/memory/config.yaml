@@ -1,0 +1,2 @@
+# apps/memory/src/memory/config.yaml
+history_limit: 5

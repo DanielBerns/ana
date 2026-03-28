@@ -1,6 +1,6 @@
 global:
   rabbitmq_url: "amqp://guest:guest@localhost:5672/"
-  database_url: "postgresql+asyncpg://user:pass@localhost:5432/ana"
+  database_url: "postgresql+asyncpg://ana_admin:ana_password@localhost:5432/ana_db"
 
 component_configs:
   interface: "apps/interface/src/interface/config.yaml"
