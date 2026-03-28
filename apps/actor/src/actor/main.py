@@ -138,9 +138,8 @@ async def lifespan(app: FastAPI):
     await command_handler.register(host)
     await system_handler.register(host)
 
-    async with router.lifespan_context(app):
-        logger.info("actor_startup_complete")
-        yield
+    logger.info("actor_startup_complete")
+    yield
 
 app = FastAPI(lifespan=lifespan, title="Ana Actor Component")
 app.include_router(router)
