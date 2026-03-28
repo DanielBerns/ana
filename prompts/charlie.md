@@ -13,4 +13,4 @@ ana/
     ├── controller/           # Decision engine
     ├── actor/                # Execution engine
     ├── memory/               # Context and records database
-    └── inspector/            # Diagnostic dashboard
+    └── inspector/            # inspector dashboard

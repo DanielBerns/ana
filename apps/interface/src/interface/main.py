@@ -231,8 +231,8 @@ async def receive_chat_from_proxy(payload: ProxyChatPayload):
     return {"status": "accepted", "correlation_id": correlation_id}
 
 
-@app.get("/diagnostic")
-async def diagnostic_endpoint():
+@app.get("/inspector")
+async def inspector_endpoint():
     """Lightweight read-only API for the Inspector."""
     return {
         "status": "healthy",

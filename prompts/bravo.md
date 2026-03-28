@@ -7,7 +7,7 @@ Here is the recommended technology stack and implementation strategy to bring An
 ### 1. The Recommended Tech Stack
 
 * **Dependency Management & Tooling:** Use `uv` for lightning-fast project and virtual environment management.
-* **Web Framework (Diagnostic APIs, Store, Configurator):** `FastAPI`. It is asynchronous, self-documenting, and incredibly fast to develop with.
+* **Web Framework (inspector APIs, Store, Configurator):** `FastAPI`. It is asynchronous, self-documenting, and incredibly fast to develop with.
 * **Data Validation & Domain Models:** `Pydantic`. This will define your core domain entities and ensure your event payloads are strictly typed.
 * **Database & Migrations:** `SQLAlchemy` 2.0 (using its async engine) paired with `Alembic` for database migrations. Each component that requires state (Memory, Controller, Actor) will have its own isolated SQLite or PostgreSQL database.
 * **Event Framework:** **`FastStream`**. This is a highly recommended Python library specifically designed for event-driven microservices. It wraps message brokers with a syntax that looks exactly like FastAPI, making it effortless to consume and produce events using Pydantic schemas.
@@ -21,7 +21,7 @@ The specification mandates Hexagonal Architecture (Ports and Adapters). Here is 
 
 * **Domain Core:** Pure Python classes and `Pydantic` models representing your business logic (e.g., `Perception`, `Command`, `Action`). Absolutely no FastAPI or SQLAlchemy code lives here.
 * **Inbound Adapters (Driving Ports):** * `FastStream` routers that listen to the Event Broker and trigger domain logic.
-    * `FastAPI` endpoints serving as the Diagnostic APIs or the Proxy Website webhook receivers.
+    * `FastAPI` endpoints serving as the inspector APIs or the Proxy Website webhook receivers.
 * **Outbound Adapters (Driven Ports):** * `SQLAlchemy` repository classes that save and retrieve data from the internal databases.
     * `FastStream` publisher functions that broadcast events back to the broker.
 
@@ -35,7 +35,7 @@ Here is a pragmatic approach to building the 8 core components for a functional,
 * **4. Memory:** A FastStream consumer that listens for `TaskCompleted` events and an SQLAlchemy backend to store them. It will also listen for `ContextRequested` events and reply with the history.
 * **5. Controller & 6. Actor:** The brains and hands. Built with FastStream to listen to their respective topics, process the data through your domain logic, and publish the subsequent events.
 * **7. Interface:** This will be a dual-purpose FastAPI/FastStream app. `APScheduler` will run background tasks for scraping. FastAPI endpoints will act as the Chat Bridge to receive webhooks from your Proxy Website. FastStream will publish the resulting data to the broker.
-* **8. Inspector:** A lightweight frontend (using basic HTML/JS or a simple framework like Streamlit) that makes HTTP GET requests to the Diagnostic APIs of the other containers.
+* **8. Inspector:** A lightweight frontend (using basic HTML/JS or a simple framework like Streamlit) that makes HTTP GET requests to the inspector APIs of the other containers.
 
 ### 4. Structured Logging Implementation
 
