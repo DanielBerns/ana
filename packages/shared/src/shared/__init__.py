@@ -9,6 +9,7 @@ from .events import (
     TaskCompleted,
 )
 from .config import setup_logger, fetch_dynamic_config
+from .protocols import EventHandler, EventSource, ComponentHost
 
 __all__ = [
     "BaseEvent",
@@ -20,5 +21,8 @@ __all__ = [
     "ActionRequired",
     "TaskCompleted",
     "setup_logger",
-    "fetch_dynamic_config"
+    "fetch_dynamic_config",
+    "EventHandler",
+    "EventSource",
+    "ComponentHost"
 ]
