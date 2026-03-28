@@ -48,3 +48,14 @@ run-memory:
 run-inspector:
 	@echo "Starting Inspector (Port 8006)..."
 	uv run uvicorn apps.inspector.src.inspector.main:app --reload --port 8006
+
+run-all:
+	@echo "Starting all Ana components..."
+	uv run uvicorn apps.configurator.src.configurator.main:app --reload --port 8005 & \
+	uv run uvicorn apps.store.src.store.main:app --reload --port 8001 & \
+	uv run uvicorn apps.memory.src.memory.main:app --reload --port 8004 & \
+	uv run uvicorn apps.interface.src.interface.main:app --reload --port 8000 & \
+	uv run uvicorn apps.controller.src.controller.main:app --reload --port 8002 & \
+	uv run uvicorn apps.actor.src.actor.main:app --reload --port 8003 & \
+	uv run uvicorn apps.inspector.src.inspector.main:app --reload --port 8006 & \
+	wait
