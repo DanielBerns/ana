@@ -134,10 +134,8 @@ async def lifespan(app: FastAPI):
         logger.info("database_tables_initialized")
 
     # 2. FastStream's lifespan_context handles the RabbitMQ connection automatically
-    async with router.lifespan_context(app):
-        logger.info("memory_startup_complete")
-
-        yield # App is running
+    logger.info("memory_startup_complete")
+    yield # App is running
 
     # 3. Graceful shutdown of the database engine
     if engine:

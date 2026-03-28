@@ -7,3 +7,9 @@ event_handlers:
     enabled: true
     max_retries: 3
     default_instruction: "process_data"
+rules:
+  ETLRoutingRule:
+    enabled: true
+    target_domains:
+      - "comodoro-supermarkets.com.ar"
+      - "news-portal.com"

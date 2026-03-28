@@ -136,10 +136,10 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(collect_garbage, 'interval', hours=1)
     scheduler.start()
 
-    async with router.lifespan_context(app):
-        logger.info("store_startup_complete")
-        yield
-        scheduler.shutdown()
+    logger.info("store_startup_complete")
+    yield
+
+    scheduler.shutdown()
 
 app = FastAPI(lifespan=lifespan, title="Ana Store Component")
 app.include_router(router)
