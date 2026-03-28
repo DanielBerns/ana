@@ -13,7 +13,7 @@ from shared.config import setup_logger, fetch_dynamic_config
 from shared.protocols import EventHandler, ComponentHost, Configurable
 
 # Import the domain logic
-from .domain.rules import RuleEngine, HumanInteractionRule, MaxRetriesRule
+from .domain.rules import RuleEngine
 
 # --- Logging Setup ---
 logger = setup_logger("controller_component")
@@ -92,43 +92,32 @@ class UserPromptHandler:
         log.info("chat_history_requested")
 
 
+# ... (Host setup) ...
+
 class ContextProvidedHandler:
     def __init__(self, config: dict[str, Any]):
         self._host: ComponentHost | None = None
-        self.update_config(config)
+        self.rule_engine = RuleEngine(config.get("rules", {}))
 
     def update_config(self, params: dict[str, Any]) -> None:
-        self.enabled = params.get("enabled", True)
-
-        # Dynamically rebuild the Rule Engine if parameters change!
-        max_retries = int(params.get("max_retries", 3))
-        default_inst = params.get("default_instruction", "process_data")
-
-        self.rule_engine = RuleEngine(
-            rules=[HumanInteractionRule(), MaxRetriesRule(max_failures=max_retries)],
-            default_instruction=default_inst
-        )
-        logger.info("rule_engine_reconfigured", payload={"max_retries": max_retries})
+        # Pass the config updates down to the RuleEngine and its active rules!
+        self.rule_engine.update_config(params.get("rules", {}))
 
     async def register(self, host_component: ComponentHost) -> None:
         self._host = host_component
-        await host_component.subscribe("context_responses", self)
+        await self.rule_engine.register(host_component)
+        await host_component.subscribe("memory.context_provided", self)
 
-    async def handle(self, event: ContextProvided) -> None:
-        if not self.enabled: return
-
+    async def handle(self, event: Any) -> None: # Using Any or the specific ContextProvided type
         log = logger.bind(correlation_id=event.correlation_id)
-        decision = self.rule_engine.process(event, event.history)
 
-        command = CommandIssued(
-            correlation_id=event.correlation_id,
-            instruction=decision.instruction,
-            user_id=event.user_id,
-            context_data=decision.context_payload
-        )
-        await self._host.publish(command, queue="commands")
-        log.info("command_issued", payload={"instruction": decision.instruction})
+        # We simply pass the context to the engine.
+        # The rules themselves will decide if they need to publish commands.
+        await self.rule_engine.evaluate_all(event)
 
+        log.info("context_evaluated_by_active_rules")
+
+# ... (Lifespan and SystemHandler logic remains exactly the same) ...
 
 # ==========================================
 # SYSTEM LIFECYCLE HANDLER

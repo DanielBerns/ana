@@ -1,95 +1,102 @@
-from typing import Protocol, Any, Optional
-from pydantic import BaseModel
+# apps/controller/src/controller/domain/rules.py
+import uuid
+from typing import Any
+from shared.events import BaseEvent, CommandIssued
+from shared.protocols import ComponentHost
+from shared.config import setup_logger
 
-# Import the BaseEvent from our shared contracts
-from shared.events import BaseEvent
+logger = setup_logger("controller_rules")
 
-class RuleResult(BaseModel):
-    """The concrete decision outputted by the Rule Engine."""
-    instruction: str
-    context_payload: dict[str, Any]
+class BaseRule:
+    """The base contract for all active rules."""
+    def __init__(self, config: dict[str, Any]):
+        self._host: ComponentHost | None = None
+        self.enabled = True
+        self.update_config(config)
 
+    def update_config(self, config: dict[str, Any]) -> None:
+        """Standard configuration update. Subclasses can override to add specific fields."""
+        self.enabled = config.get("enabled", True)
 
-class Rule(Protocol):
-    """
-    The structural contract for a single evaluation criteria.
-    """
-    def evaluate(self, event: BaseEvent, history: list[dict[str, Any]]) -> Optional[RuleResult]:
-        """
-        Evaluates the event and history.
-        Returns a RuleResult if the rule triggers, otherwise returns None to pass control to the next rule.
-        """
-        ...
+    async def register(self, host: ComponentHost) -> None:
+        """Binds the rule to the message broker so it can send/receive events."""
+        self._host = host
+        await self.setup_subscriptions()
 
+    async def setup_subscriptions(self) -> None:
+        """Optional: Subclasses can override this to listen to specific queues."""
+        pass
 
-# ==========================================
-# CONCRETE RULE IMPLEMENTATIONS
-# ==========================================
-
-class HumanInteractionRule:
-    """
-    Rule 1: If the event originated from a specific human user,
-    prioritize generating a chat reply.
-    """
-    def evaluate(self, event: BaseEvent, history: list[dict[str, Any]]) -> Optional[RuleResult]:
-        # Since we use duck typing, we check if the event has a user_id attribute
-        user_id = getattr(event, "user_id", None)
-
-        if user_id is not None:
-            return RuleResult(
-                instruction="generate_chat_reply",
-                context_payload={"reason": "human_interaction_detected", "user_id": user_id}
-            )
-        return None
+    async def evaluate(self, context_data: Any) -> None:
+        """The core logic of the rule. Must be implemented by subclasses."""
+        raise NotImplementedError
 
 
-class MaxRetriesRule:
-    """
-    Rule 2: If the system has failed the same task multiple times recently,
-    stop processing and escalate.
-    """
-    def __init__(self, max_failures: int = 3):
-        self.max_failures = max_failures
+class ETLRoutingRule(BaseRule):
+    """Routes specific scraped data to the Actor for ETL processing."""
 
-    def evaluate(self, event: BaseEvent, history: list[dict[str, Any]]) -> Optional[RuleResult]:
-        # Count recent failures in the provided history context
-        failure_count = sum(1 for record in history if record.get("status") == "failure")
+    def update_config(self, config: dict[str, Any]) -> None:
+        super().update_config(config)
+        # Load the target URLs from the YAML config
+        self.target_domains = config.get("target_domains", [])
 
-        if failure_count >= self.max_failures:
-            return RuleResult(
-                instruction="escalate_to_human",
-                context_payload={
-                    "reason": "max_retries_exceeded",
-                    "failures": failure_count
-                }
-            )
-        return None
+    async def evaluate(self, context_event: Any) -> None:
+        if not self.enabled or not self._host:
+            return
 
+        # We assume context_event is a ContextProvided event containing our trigger
+        trigger = getattr(context_event, "trigger_event", None)
 
-# ==========================================
-# THE RULE ENGINE
-# ==========================================
+        # If the trigger was a perception gathered from the Interface
+        if trigger and trigger.get("event_type") == "PerceptionGathered":
+            source_url = trigger.get("source_url", "")
+
+            # Check if the URL matches our configurable target domains
+            if any(domain in source_url for domain in self.target_domains):
+                correlation_id = str(uuid.uuid4())
+                uri = trigger.get("uri")
+
+                # The Rule actively publishes the command to the broker itself!
+                command = CommandIssued(
+                    correlation_id=correlation_id,
+                    target_component="actor",
+                    instruction="extract_timeseries_data",
+                    payload={"source_uri": uri, "origin_url": source_url}
+                )
+                await self._host.publish(command, queue="commands")
+
+                logger.info(
+                    "etl_rule_triggered",
+                    payload={"domain": source_url, "instruction": command.instruction}
+                )
+
 
 class RuleEngine:
-    """
-    Iterates through a prioritized list of Rules.
-    Returns the decision of the first matching Rule, or a default fallback.
-    """
-    def __init__(self, rules: list[Rule], default_instruction: str = "process_data"):
-        self.rules = rules
-        self.default_instruction = default_instruction
+    def __init__(self, config: dict[str, Any]):
+        self._host: ComponentHost | None = None
+        self.rules: dict[str, BaseRule] = {}
+        self.update_config(config)
 
-    def process(self, event: BaseEvent, history: list[dict[str, Any]]) -> RuleResult:
-        """
-        Pure business logic execution. No async code, no I/O.
-        """
-        for rule in self.rules:
-            result = rule.evaluate(event, history)
-            if result:
-                return result
+    def update_config(self, config: dict[str, Any]) -> None:
+        # Here you map config names to actual Python classes
+        rule_classes = {
+            "ETLRoutingRule": ETLRoutingRule,
+            # Add other rules here as you build them
+        }
 
-        # Fallback if no specific rules are triggered
-        return RuleResult(
-            instruction=self.default_instruction,
-            context_payload={"reason": "default_fallback"}
-        )
+        for rule_name, rule_class in rule_classes.items():
+            rule_config = config.get(rule_name, {})
+            if rule_name not in self.rules:
+                self.rules[rule_name] = rule_class(rule_config)
+            else:
+                self.rules[rule_name].update_config(rule_config)
+
+    async def register(self, host: ComponentHost) -> None:
+        self._host = host
+        for rule in self.rules.values():
+            await rule.register(host)
+
+    async def evaluate_all(self, context_data: Any) -> None:
+        for rule in self.rules.values():
+            if rule.enabled:
+                await rule.evaluate(context_data)
