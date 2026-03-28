@@ -1,31 +1,11 @@
-# apps/configurator/src/configurator/settings.yaml
 global:
   rabbitmq_url: "amqp://guest:guest@localhost:5672/"
   database_url: "postgresql+asyncpg://ana_admin:ana_password@localhost:5432/ana_db"
 
-components:
-  interface:
-    proxy_website_url: "http://mock-proxy.local/api/receive-reply"
-    store_api_url: "http://localhost:8001/files"
-    scraping_interval_minutes: 10
-  store:
-    ttl_seconds: 604800 # 7 days
-    storage_dir: "/tmp/ana_store"
-  controller:
-    max_retries: 3
-  actor:
-    default_timeout_seconds: 30
-  memory:
-    history_limit: 5
-  inspector:
-    # Basic Auth credentials for the human operator
-    admin_username: "admin"
-    admin_password: "supersecretpassword"
-    # The endpoints the Inspector will poll
-    components_to_monitor:
-      configurator: "http://localhost:8005/diagnostic"
-      interface: "http://localhost:8000/diagnostic"
-      store: "http://localhost:8001/diagnostic"
-      controller: "http://localhost:8002/diagnostic"
-      actor: "http://localhost:8003/diagnostic"
-      memory: "http://localhost:8004/diagnostic"
+component_configs:
+  interface: "apps/interface/src/interface/config.yaml"
+  actor: "apps/actor/src/actor/config.yaml"
+  controller: "apps/controller/src/controller/config.yaml"
+  memory: "apps/memory/src/memory/config.yaml"
+  store: "apps/store/src/store/config.yaml"
+  inspector: "apps/inspector/src/inspector/config.yaml"

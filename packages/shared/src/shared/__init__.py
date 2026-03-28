@@ -7,6 +7,8 @@ from .events import (
     CommandIssued,
     ActionRequired,
     TaskCompleted,
+    ConfigurationUpdated,
+    SystemFatalError
 )
 from .config import setup_logger, fetch_dynamic_config
 from .protocols import EventHandler, EventSource, ComponentHost
@@ -20,6 +22,8 @@ __all__ = [
     "CommandIssued",
     "ActionRequired",
     "TaskCompleted",
+    "ConfigurationUpdated",
+    "SystemFatalError",
     "setup_logger",
     "fetch_dynamic_config",
     "EventHandler",

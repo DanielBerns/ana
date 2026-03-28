@@ -1,0 +1,10 @@
+# apps/inspector/src/inspector/config.yaml
+admin_username: "admin"
+admin_password: "admin"
+components_to_monitor:
+  interface: "http://localhost:8000/diagnostic"
+  store: "http://localhost:8001/diagnostic"
+  controller: "http://localhost:8002/diagnostic"
+  actor: "http://localhost:8003/diagnostic"
+  memory: "http://localhost:8004/diagnostic"
+  configurator: "http://localhost:8005/diagnostic"

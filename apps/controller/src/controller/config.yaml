@@ -1,0 +1,9 @@
+event_handlers:
+  PerceptionHandler:
+    enabled: true
+  UserPromptHandler:
+    enabled: true
+  ContextProvidedHandler:
+    enabled: true
+    max_retries: 3
+    default_instruction: "process_data"

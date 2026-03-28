@@ -1,46 +1,60 @@
 import os
 import yaml
-import structlog
 from fastapi import FastAPI, HTTPException
 
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer() #
-    ]
-)
-logger = structlog.get_logger("configurator_component")
+# Import shared logger (assuming configurator also uses it)
+from shared.config import setup_logger
+
+logger = setup_logger("configurator_component")
 
 app = FastAPI(title="Ana Configurator Component")
 
-def load_settings():
-    """Loads the YAML file containing the system configuration."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    yaml_path = os.path.join(base_dir, "settings.yaml")
-    try:
-        with open(yaml_path, "r") as f:
-            return yaml.safe_load(f)
-    except Exception as e:
-        logger.error("failed_to_load_settings", error=str(e))
+def load_yaml(filepath: str) -> dict:
+    """Helper function to load a YAML file."""
+    if not os.path.exists(filepath):
+        logger.warning("yaml_file_not_found", payload={"filepath": filepath})
         return {}
+
+    try:
+        with open(filepath, "r") as f:
+            return yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.error("failed_to_load_yaml", payload={"filepath": filepath, "error": str(e)})
+        raise HTTPException(status_code=500, detail=f"Invalid YAML in {filepath}")
+
+def get_base_dir():
+    # Helper to find the root of the project to construct absolute paths
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
 
 @app.get("/config/{component_name}")
 async def get_configuration(component_name: str):
     """
-    Provides dynamic configuration for a specific component.
-    Merges global settings (like DB and Broker URLs) with component-specific ones.
+    Provides dynamic configuration by merging global settings with the component's decentralized YAML.
     """
-    settings = load_settings()
-    globals_cfg = settings.get("global", {})
-    component_cfg = settings.get("components", {}).get(component_name)
+    base_dir = get_base_dir()
+    central_settings_path = os.path.join(base_dir, "apps/configurator/src/configurator/settings.yaml")
 
-    if component_cfg is None:
-        raise HTTPException(status_code=404, detail=f"Configuration for '{component_name}' not found.")
+    # 1. Load the central settings
+    central_settings = load_yaml(central_settings_path)
+    globals_cfg = central_settings.get("global", {})
 
-    # Merge global variables and component-specific variables into one dictionary
+    # 2. Find the path to the component's local config
+    component_paths = central_settings.get("component_configs", {})
+    relative_component_path = component_paths.get(component_name)
+
+    if not relative_component_path:
+        # Fallback if no specific file is mapped, just return globals
+        logger.info("configuration_served_globals_only", payload={"component": component_name})
+        return globals_cfg
+
+    # 3. Load the component's local settings
+    absolute_component_path = os.path.join(base_dir, relative_component_path)
+    component_cfg = load_yaml(absolute_component_path)
+
+    # 4. Merge global variables and component-specific variables
     merged_config = {**globals_cfg, **component_cfg}
 
-    logger.info("configuration_served", component=component_name)
+    logger.info("configuration_served", payload={"component": component_name})
     return merged_config
 
 @app.get("/diagnostic")

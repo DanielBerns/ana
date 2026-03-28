@@ -1,20 +1,25 @@
+import os
 import uuid
 from contextlib import asynccontextmanager
+from typing import Any
 from fastapi import FastAPI
 from pydantic import BaseModel
 from faststream.rabbit.fastapi import RabbitRouter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Import our strictly typed domain contracts and shared utilities
-from shared.events import UserPromptReceived, ActionRequired, PerceptionGathered, BaseEvent
+from shared.events import (
+    UserPromptReceived, ActionRequired, PerceptionGathered,
+    ConfigurationUpdated, SystemFatalError, BaseEvent
+)
 from shared.config import setup_logger, fetch_dynamic_config
-from shared.protocols import EventHandler, EventSource, ComponentHost
+from shared.protocols import EventHandler, EventSource, ComponentHost, Configurable
 
 # --- Logging Setup ---
 logger = setup_logger("interface_component")
 
 # ==========================================
-# DYNAMIC CONFIGURATION STATE
+# DYNAMIC CONFIGURATION STATE (BOOT)
 # ==========================================
 DYNAMIC_CONFIG = fetch_dynamic_config("interface", logger)
 rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
@@ -22,14 +27,8 @@ rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
 # Initialize the FastStream router
 router = RabbitRouter(rabbitmq_url)
 
-# ==========================================
-# 1. THE COMPONENT HOST
-# ==========================================
 class InterfaceHost:
-    """
-    Concrete implementation of ComponentHost.
-    It bridges our domain Handlers/Sources to the FastStream RabbitMQ router.
-    """
+    """Concrete implementation of ComponentHost."""
     def __init__(self, faststream_router: RabbitRouter):
         self.router = faststream_router
 
@@ -37,24 +36,30 @@ class InterfaceHost:
         await self.router.broker.publish(event, queue=queue)
 
     async def subscribe(self, topic: str, handler: EventHandler) -> None:
-        # FastStream's subscriber can be used dynamically as a decorator wrapper!
-        # It automatically parses the Pydantic type defined in `handler.handle`
         self.router.subscriber(topic)(handler.handle)
 
-# Instantiate the Host
 host = InterfaceHost(router)
 
 
 # ==========================================
-# 2. EVENT SOURCES & HANDLERS (Domain/Adapters)
+# ADAPTERS (Event Sources & Handlers)
 # ==========================================
 class ScrapingEventSource:
-    """EventSource: Runs periodically and emits PerceptionGathered events."""
-    def __init__(self, interval_minutes: int, store_api_url: str):
-        self.interval = interval_minutes
-        self.store_api_url = store_api_url
+    def __init__(self, config: dict[str, Any]):
         self._host: ComponentHost | None = None
         self.scheduler = AsyncIOScheduler()
+        self.update_config(config)
+
+    def update_config(self, params: dict[str, Any]) -> None:
+        # Validates and sets operational config
+        self.enabled = params.get("enabled", True)
+        self.interval = int(params["interval_minutes"]) # Raises KeyError/ValueError if bad
+        self.store_api_url = params["store_api_url"]
+
+        # If already running, reschedule the job with the new interval
+        if self.scheduler.running and self.enabled:
+            self.scheduler.reschedule_job('scrape_job', trigger='interval', minutes=self.interval)
+            logger.info("scraping_source_rescheduled", payload={"new_interval": self.interval})
 
     async def register(self, host_component: ComponentHost) -> None:
         self._host = host_component
@@ -62,19 +67,19 @@ class ScrapingEventSource:
     async def start(self) -> None:
         if not self._host:
             raise RuntimeError("ScrapingEventSource not registered")
-        self.scheduler.add_job(self._scrape, 'interval', minutes=self.interval)
+        self.scheduler.add_job(self._scrape, 'interval', minutes=self.interval, id='scrape_job')
         self.scheduler.start()
-        logger.info("scraping_source_started", payload={"interval": self.interval})
 
     async def stop(self) -> None:
         self.scheduler.shutdown()
 
     async def _scrape(self):
+        if not self.enabled:
+            return # Soft-toggle check
+
         correlation_id = str(uuid.uuid4())
         log = logger.bind(correlation_id=correlation_id)
-        log.info("autonomous_scrape_started")
 
-        # Completely encapsulated scraping logic
         source_url = "https://example.com/news"
         uri = f"{self.store_api_url}/mock-{uuid.uuid4().hex[:8]}.html"
 
@@ -88,61 +93,111 @@ class ScrapingEventSource:
 
 
 class ProxyActionHandler:
-    """EventHandler: Listens for ActionRequired events and pushes to an external Proxy."""
-    def __init__(self, proxy_url: str):
-        self.proxy_url = proxy_url
+    def __init__(self, config: dict[str, Any]):
+        self._host: ComponentHost | None = None
+        self.update_config(config)
+
+    def update_config(self, params: dict[str, Any]) -> None:
+        self.enabled = params.get("enabled", True)
+        self.proxy_url = params["proxy_url"] # Raises KeyError if missing
+
+    async def register(self, host_component: ComponentHost) -> None:
+        self._host = host_component
+        await host_component.subscribe("actions", self)
+
+    async def handle(self, event: ActionRequired) -> None:
+        if not self.enabled:
+            return # Silently drop/ack the message if disabled at runtime
+
+        log = logger.bind(correlation_id=event.correlation_id)
+        if event.action_type == "reply_to_chat" and event.user_id:
+            payload = {"user_id": event.user_id, "reply": event.payload}
+            log.info("pushed_reply_to_proxy", payload={"proxy_url": self.proxy_url, "data": payload})
+
+
+# ==========================================
+# SYSTEM LIFECYCLE HANDLER
+# ==========================================
+class SystemHandler:
+    """Listens for ConfigurationUpdates and applies them to registered configurables."""
+    def __init__(self, component_name: str, registry: dict[str, Configurable]):
+        self.component_name = component_name
+        self.registry = registry
         self._host: ComponentHost | None = None
 
     async def register(self, host_component: ComponentHost) -> None:
         self._host = host_component
-        # Tell the host we want to listen to the "actions" queue
-        await host_component.subscribe("actions", self)
+        # In a real system, this should be a fan-out exchange so ALL components hear it
+        await host_component.subscribe("system.config_updates", self)
 
-    async def handle(self, event: ActionRequired) -> None:
+    async def handle(self, event: ConfigurationUpdated) -> None:
+        if event.target_component not in (self.component_name, "all"):
+            return
+
         log = logger.bind(correlation_id=event.correlation_id)
-        log.info("action_required_consumed", payload={"action_type": event.action_type})
+        log.info("applying_new_configuration")
 
-        if event.action_type == "reply_to_chat" and event.user_id:
-            try:
-                payload = {"user_id": event.user_id, "reply": event.payload}
-                # Encapsulated HTTP request (commented out to match original mock)
-                # async with httpx.AsyncClient() as client:
-                #     await client.post(self.proxy_url, json=payload)
-                log.info("pushed_reply_to_proxy", payload={"proxy_url": self.proxy_url, "data": payload})
-            except Exception as e:
-                log.error("proxy_push_failed", payload={"error": str(e)})
+        try:
+            # Apply new config to sources
+            for name, config_data in event.new_configuration.get("event_sources", {}).items():
+                if name in self.registry:
+                    self.registry[name].update_config(config_data)
+
+            # Apply new config to handlers
+            for name, config_data in event.new_configuration.get("event_handlers", {}).items():
+                if name in self.registry:
+                    self.registry[name].update_config(config_data)
+
+            log.info("configuration_applied_successfully")
+
+        except Exception as e:
+            log.fatal("invalid_configuration_received", payload={"error": str(e)})
+
+            # Emit the death cry
+            fatal_event = SystemFatalError(
+                correlation_id=event.correlation_id,
+                component=self.component_name,
+                error_reason=str(e),
+                bad_configuration=event.new_configuration
+            )
+            await self._host.publish(fatal_event, queue="system.fatal_errors")
+
+            # Force kill the container/process
+            os._exit(1)
 
 
 # ==========================================
-# 3. INSTANTIATION & APP LIFECYCLE
+# INSTANTIATION & APP LIFECYCLE
 # ==========================================
-scraping_source = ScrapingEventSource(
-    interval_minutes=DYNAMIC_CONFIG.get("scraping_interval_minutes", 10),
-    store_api_url=DYNAMIC_CONFIG.get("store_api_url", "http://localhost:8001/files")
-)
+# Instantiate from the dynamic config we got at boot
+source_config = DYNAMIC_CONFIG.get("event_sources", {}).get("ScrapingEventSource", {})
+handler_config = DYNAMIC_CONFIG.get("event_handlers", {}).get("ProxyActionHandler", {})
 
-proxy_handler = ProxyActionHandler(
-    proxy_url=DYNAMIC_CONFIG.get("proxy_website_url", "http://localhost:3000/webhook")
-)
+scraping_source = ScrapingEventSource(source_config)
+proxy_handler = ProxyActionHandler(handler_config)
+
+# The Registry maps the YAML string names to the active Python objects
+configurable_registry: dict[str, Configurable] = {
+    "ScrapingEventSource": scraping_source,
+    "ProxyActionHandler": proxy_handler
+}
+
+system_handler = SystemHandler("interface", configurable_registry)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Register our domains to the Host
+    # Register adapters
     await proxy_handler.register(host)
     await scraping_source.register(host)
+    await system_handler.register(host)
 
-    # 2. FastStream handles the RabbitMQ connection lifecycle
     async with router.lifespan_context(app):
-        # 3. Start our autonomous sources
         await scraping_source.start()
         logger.info("interface_startup_complete")
-
-        yield # Application is running
-
-        # 4. Graceful teardown
+        yield
         await scraping_source.stop()
 
-# Initialize the FastAPI app and attach the FastStream router
 app = FastAPI(lifespan=lifespan, title="Ana Interface Component")
 app.include_router(router)
 
