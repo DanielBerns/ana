@@ -28,5 +28,7 @@ __all__ = [
     "fetch_dynamic_config",
     "EventHandler",
     "EventSource",
-    "ComponentHost"
+    "ComponentHost",
+    "PayloadStored",
+    "ModifyFileRetention"
 ]

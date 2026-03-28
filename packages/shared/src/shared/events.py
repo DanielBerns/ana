@@ -92,3 +92,22 @@ class SystemFatalError(BaseEvent):
     component: str
     error_reason: str
     bad_configuration: dict[str, Any]
+
+
+# ==========================================
+# 6. STORAGE & DATA LIFECYCLE EVENTS
+# ==========================================
+class PayloadStored(BaseEvent):
+    """Emitted by the Store immediately after a file is saved and deduplicated."""
+    event_type: Literal["PayloadStored"] = "PayloadStored"
+    hash_id: str
+    uri: str
+    mime_type: str
+    collection_id: Optional[str] = None
+    size_bytes: int
+
+class ModifyFileRetention(BaseEvent):
+    """Consumed by the Store to dynamically change a file's lifecycle."""
+    event_type: Literal["ModifyFileRetention"] = "ModifyFileRetention"
+    hash_id: str
+    new_policy: Literal["ephemeral", "standard", "preserved"]
