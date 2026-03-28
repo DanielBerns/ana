@@ -1,0 +1,10 @@
+event_sources:
+  ScrapingEventSource:
+    enabled: true
+    interval_minutes: 10
+    store_api_url: "http://localhost:8001/files"
+
+event_handlers:
+  ProxyActionHandler:
+    enabled: true
+    proxy_url: "http://localhost:3000/webhook"
