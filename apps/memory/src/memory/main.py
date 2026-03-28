@@ -121,7 +121,7 @@ async def handle_context_requested(event: ContextRequested):
 
 
 # ==========================================
-# DIAGNOSTIC API & APP LIFECYCLE
+# inspector API & APP LIFECYCLE
 # ==========================================
 
 @asynccontextmanager
@@ -148,7 +148,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan, title="Ana Memory Component")
 app.include_router(router)
 
-@app.get("/diagnostic")
+@app.get("/inspector")
 async def diagnostic_endpoint():
     """Lightweight read-only API for the Inspector."""
     return {

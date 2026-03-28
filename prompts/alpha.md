@@ -63,11 +63,11 @@ The local network operates on a "Zero Trust" model. The Event Broker must enforc
 * **Guaranteed Delivery (At-Least-Once):** Because components use "Consumer Groups" to connect to the Event Broker, if a component crashes, the broker simply holds the messages in the queue. When the component restarts, it picks up exactly the next event in the stream. No data is lost.
 * **Idempotency:** Because event delivery is typically "at-least-once" (meaning network blips might cause a message to be delivered twice), the internal logic of the Controller, Actor, and Memory must be designed idempotently to handle duplicate events gracefully.
 
-## 6. Administration & Diagnostic Data Flow
+## 6. Administration & inspector Data Flow
 
 While operational data flows through the Event Broker, administrative oversight remains direct.
-* **Diagnostic APIs:** Every component must expose a lightweight, read-only internal HTTP API endpoint.
-* **Aggregation:** The **Inspector** connects directly to these Diagnostic APIs to query internal database health, scheduler status, and event consumer lag, presenting this to the authorized human operator.
+* **inspector APIs:** Every component must expose a lightweight, read-only internal HTTP API endpoint.
+* **Aggregation:** The **Inspector** connects directly to these inspector APIs to query internal database health, scheduler status, and event consumer lag, presenting this to the authorized human operator.
 
 ## 7. Observability: Extensive Structured Logging
 

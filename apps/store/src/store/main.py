@@ -57,7 +57,7 @@ async def enforce_ttl_policy():
 
 
 # ==========================================
-# DIAGNOSTIC API & APP LIFECYCLE
+# inspector API & APP LIFECYCLE
 # ==========================================
 
 @asynccontextmanager
@@ -122,8 +122,8 @@ async def get_file(filename: str):
 
     return FileResponse(file_path)
 
-@app.get("/diagnostic")
-async def diagnostic_endpoint():
+@app.get("/inspector")
+async def inspector_endpoint():
     """Lightweight read-only API for the Inspector."""
     files_count = len(os.listdir(storage_dir)) if storage_dir and os.path.exists(storage_dir) else 0
 

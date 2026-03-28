@@ -36,16 +36,16 @@ def verify_admin_user(credentials: HTTPBasicCredentials = Depends(security)):
     return credentials.username
 
 # ==========================================
-# DIAGNOSTIC AGGREGATION
+# inspector AGGREGATION
 # ==========================================
-async def fetch_diagnostic(client: httpx.AsyncClient, name: str, url: str):
-    """Fetches the diagnostic state of a single component."""
+async def fetch_inspector(client: httpx.AsyncClient, name: str, url: str):
+    """Fetches the inspector state of a single component."""
     try:
         response = await client.get(url, timeout=2.0)
         response.raise_for_status()
         return name, response.json()
     except Exception as e:
-        logger.error("diagnostic_fetch_failed", payload={"component": name, "error": str(e)})
+        logger.error("inspector_fetch_failed", payload={"component": name, "error": str(e)})
         return name, {"status": "unreachable", "error": str(e)}
 
 # Initialize the FastAPI app
@@ -61,9 +61,9 @@ async def admin_dashboard(username: str = Depends(verify_admin_user)):
     """
     targets = DYNAMIC_CONFIG.get("components_to_monitor", {})
 
-    # Concurrently fetch diagnostics from all components
+    # Concurrently fetch inspectors from all components
     async with httpx.AsyncClient() as client:
-        tasks = [fetch_diagnostic(client, name, url) for name, url in targets.items()]
+        tasks = [fetch_inspector(client, name, url) for name, url in targets.items()]
         results = await asyncio.gather(*tasks)
 
     system_state = dict(results)

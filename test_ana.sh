@@ -10,9 +10,9 @@ echo "1. Fetching global config from Configurator (Port 8005)..."
 curl -s http://localhost:8005/config/interface
 echo -e "\n\n"
 
-# 2. Test the Interface Diagnostic
-echo "2. Pinging Interface Diagnostic (Port 8000)..."
-curl -s http://localhost:8000/diagnostic
+# 2. Test the Interface inspector
+echo "2. Pinging Interface inspector (Port 8000)..."
+curl -s http://localhost:8000/inspector
 echo -e "\n\n"
 
 # 3. Simulate a Chat Webhook Payload

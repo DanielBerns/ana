@@ -57,7 +57,7 @@ async def get_configuration(component_name: str):
     logger.info("configuration_served", payload={"component": component_name})
     return merged_config
 
-@app.get("/diagnostic")
-async def diagnostic_endpoint():
+@app.get("/inspector")
+async def inspector_endpoint():
     """Lightweight read-only API for the Inspector."""
     return {"status": "healthy", "component": "configurator"}

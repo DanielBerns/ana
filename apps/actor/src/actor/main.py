@@ -146,8 +146,8 @@ app = FastAPI(lifespan=lifespan, title="Ana Actor Component")
 app.include_router(router)
 
 
-@app.get("/diagnostic")
-async def diagnostic_endpoint():
+@app.get("/inspector")
+async def inspector_endpoint():
     """Lightweight read-only API for the Inspector."""
     return {
         "status": "healthy",
