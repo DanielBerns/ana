@@ -19,8 +19,8 @@ from shared.config import setup_logger, fetch_dynamic_config
 from shared.protocols import EventHandler, ComponentHost, Configurable
 
 # Domain & Infrastructure
-from store.domain.models import Base, FileRecord
-from store.infrastructure.storage import LocalStorageAdapter
+from .domain.models import Base, FileRecord
+from .infrastructure.storage import LocalStorageAdapter
 
 logger = setup_logger("store_component")
 
@@ -28,8 +28,8 @@ logger = setup_logger("store_component")
 # BOOTSTRAP & INFRASTRUCTURE
 # ==========================================
 DYNAMIC_CONFIG = fetch_dynamic_config("store", logger)
-rabbitmq_url = DYNAMIC_CONFIG["global"]["rabbitmq_url"]
-database_url = DYNAMIC_CONFIG["global"]["database_url"]
+rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
+database_url = DYNAMIC_CONFIG["database_url"]
 
 engine = create_async_engine(database_url, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
