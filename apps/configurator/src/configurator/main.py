@@ -1,63 +1,98 @@
 import os
 import yaml
+import logging
+from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 
-# Import shared logger (assuming configurator also uses it)
-from shared.config import setup_logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("configurator")
 
-logger = setup_logger("configurator_component")
+# 1. Path Resolution via Environment Variable
+INSTANCE_NAME = os.environ.get("ANA_INSTANCE", "devel")
+BASE_DIR = Path.home() / "ana" / INSTANCE_NAME
 
-app = FastAPI(title="Ana Configurator Component")
+# 2. Seed Mapping (Mapping API names to their repository source files)
+REPO_ROOT = Path.cwd()
+DEFAULT_FILES = {
+    "settings": REPO_ROOT / "apps/configurator/src/configurator/settings.yaml",
+    "interface": REPO_ROOT / "apps/interface/src/interface/config.yaml",
+    "store": REPO_ROOT / "apps/store/src/store/config.yaml",
+    "controller": REPO_ROOT / "apps/controller/src/controller/config.yaml",
+    "actor": REPO_ROOT / "apps/actor/src/actor/config.yaml",
+    "memory": REPO_ROOT / "apps/memory/src/memory/config.yaml",
+    "inspector": REPO_ROOT / "apps/inspector/src/inspector/config.yaml"
+}
 
-def load_yaml(filepath: str) -> dict:
-    """Helper function to load a YAML file."""
-    if not os.path.exists(filepath):
-        logger.warning("yaml_file_not_found", payload={"filepath": filepath})
-        return {}
+def bootstrap_instance():
+    """Ensures the instance directory exists and seeds it with default configs."""
+    BASE_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Bootstrapping instance '{INSTANCE_NAME}' at {BASE_DIR}")
+
+    for component, original_path in DEFAULT_FILES.items():
+        target_path = BASE_DIR / f"{component}.yaml"
+
+        if not target_path.exists():
+            logger.info(f"Seeding {target_path.name} from repository...")
+
+            if not original_path.exists():
+                logger.warning(f"Original repo file not found at {original_path}. Skipping.")
+                continue
+
+            # Read the original YAML
+            with open(original_path, 'r') as f:
+                config_data = yaml.safe_load(f) or {}
+
+            # Intelligent URL Templating for global settings
+            if component == "settings":
+                # Template RabbitMQ Virtual Host (e.g. amqp://guest:guest@localhost:5672/devel)
+                rmq_url = config_data.get("rabbitmq_url", "amqp://guest:guest@localhost:5672/")
+                if not rmq_url.endswith("/"):
+                    rmq_url += "/"
+                config_data["rabbitmq_url"] = f"{rmq_url}{INSTANCE_NAME}"
+
+                # Template PostgreSQL Database Name (e.g. postgresql+asyncpg://admin:admin@localhost:5432/ana_devel)
+                db_url = config_data.get("database_url", "postgresql+asyncpg://admin:admin@localhost:5432/ana")
+                if db_url.endswith("/ana"):
+                    config_data["database_url"] = db_url.replace("/ana", f"/ana_{INSTANCE_NAME}")
+                else:
+                    config_data["database_url"] = f"{db_url}_{INSTANCE_NAME}"
+
+            # Write the new, potentially templated YAML to the instance folder
+            with open(target_path, 'w') as f:
+                yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    bootstrap_instance()
+    yield
+
+app = FastAPI(title="Ana Configurator Component", lifespan=lifespan)
+
+@app.get("/config")
+async def get_global_settings():
+    """Serves the global settings from the instance directory."""
+    file_path = BASE_DIR / "settings.yaml"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Global settings not found in instance folder.")
 
     try:
-        with open(filepath, "r") as f:
-            return yaml.safe_load(f) or {}
+        with open(file_path, 'r') as f:
+            return yaml.safe_load(f)
     except Exception as e:
-        logger.error("failed_to_load_yaml", payload={"filepath": filepath, "error": str(e)})
-        raise HTTPException(status_code=500, detail=f"Invalid YAML in {filepath}")
+        logger.error(f"Failed to load {file_path}: {e}")
+        raise HTTPException(status_code=500, detail="Error parsing settings file")
 
-def get_base_dir():
-    # Helper to find the root of the project to construct absolute paths
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+@app.get("/config/{component}")
+async def get_config(component: str):
+    """Serves a specific component's configuration from the instance directory."""
+    file_path = BASE_DIR / f"{component}.yaml"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"Configuration for {component} not found in instance folder.")
 
-@app.get("/config/{component_name}")
-async def get_configuration(component_name: str):
-    """
-    Provides dynamic configuration by merging global settings with the component's decentralized YAML.
-    """
-    base_dir = get_base_dir()
-    central_settings_path = os.path.join(base_dir, "apps/configurator/src/configurator/settings.yaml")
-
-    # 1. Load the central settings
-    central_settings = load_yaml(central_settings_path)
-    globals_cfg = central_settings.get("global", {})
-
-    # 2. Find the path to the component's local config
-    component_paths = central_settings.get("component_configs", {})
-    relative_component_path = component_paths.get(component_name)
-
-    if not relative_component_path:
-        # Fallback if no specific file is mapped, just return globals
-        logger.info("configuration_served_globals_only", payload={"component": component_name})
-        return globals_cfg
-
-    # 3. Load the component's local settings
-    absolute_component_path = os.path.join(base_dir, relative_component_path)
-    component_cfg = load_yaml(absolute_component_path)
-
-    # 4. Merge global variables and component-specific variables
-    merged_config = {**globals_cfg, **component_cfg}
-
-    logger.info("configuration_served", payload={"component": component_name})
-    return merged_config
-
-@app.get("/inspector")
-async def inspector_endpoint():
-    """Lightweight read-only API for the Inspector."""
-    return {"status": "healthy", "component": "configurator"}
+    try:
+        with open(file_path, 'r') as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        logger.error(f"Failed to load {file_path}: {e}")
+        raise HTTPException(status_code=500, detail="Error parsing configuration file")

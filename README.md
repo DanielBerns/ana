@@ -1,170 +1,120 @@
-Here is a complete `README.md` file tailored for the Ana system. It provides a clear overview of the architecture and step-by-step instructions for getting the entire distributed system running locally using the `uv` monorepo and Docker setup we built.
+# Ana: Autonomous Event-Driven Agent
 
------
+Ana is an event-driven, microservice-based AI system built with Hexagonal Architecture. It autonomously scrapes web data, processes RSS feeds, archives artifacts, and features a conversational AI loop, all orchestrated through a RabbitMQ event bus and backed by PostgreSQL.
 
-# Ana System (v7.1)
+The system is designed for complete environment isolation. You can run multiple separate "instances" (e.g., `devel`, `testing`, `prod`) on the same machine, each with its own dedicated database, RabbitMQ virtual host, and configuration files.
 
-Ana is a long-running, distributed, and asynchronous agent-based system built on an **Event-Driven Architecture (EDA)**. It is designed to autonomously scrape data, process user chat prompts via a proxy, and execute complex workflows across network-partitioned services.
+## 🛠️ Prerequisites
 
-## 🏗️ Architecture Highlights
+To run Ana, you need the following tools installed on your system:
+* **Python 3.11+**
+* **[uv](https://github.com/astral-sh/uv)** (Python package and project manager)
+* **Docker** and **Docker Compose**
+* **Make** (for running Makefile commands)
 
-  * **Event-Driven:** Components communicate asynchronously via RabbitMQ, ensuring guaranteed delivery and fail-fast resilience.
-  * **Hexagonal Architecture:** Pure Python domain logic is strictly isolated from inbound/outbound network adapters.
-  * **Claim Check Pattern:** Heavy payloads (like scraped media) are saved to a central Store via HTTP, while only lightweight URIs are passed through the event stream.
-  * **Dynamic Configuration:** All components boot up stateless and fetch their configuration from a central Configurator server.
+---
 
-## 🧩 Components
+## 🚀 Installation & Setup
 
-The system consists of 7 custom Python microservices and 2 infrastructure services:
+**1. Clone the repository and sync dependencies:**
+```bash
+git clone <your-repo-url>
+cd ana
+make sync
+```
 
-1.  **Configurator (Port 8005):** Centralized settings and security server.
-2.  **Interface (Port 8000):** The sensory boundary. Handles autonomous scraping (cron) and inbound/outbound chat webhooks.
-3.  **Store (Port 8001):** Blob storage for heavy payloads with an automated TTL garbage collector.
-4.  **Controller (Port 8002):** The decision-making engine.
-5.  **Actor (Port 8003):** The execution engine.
-6.  **Memory (Port 8004):** PostgreSQL-backed storage for chat context and operational logging.
-7.  **Inspector (Port 8006):** Centralized administrative dashboard.
+**2. Start the Infrastructure (Docker):**
+This spins up PostgreSQL and RabbitMQ in the background.
+```bash
+make up
+```
 
------
+**3. Provision an Instance:**
+Before starting the system, you must provision an isolated database and message queue for your specific instance (e.g., `devel`).
+```bash
+make provision INSTANCE=devel
+```
 
-## 🚀 Prerequisites
-
-Before running Ana, ensure you have the following installed on your machine:
-
-  * **Python 3.11+**
-  * **[uv](https://github.com/astral-sh/uv):** The lightning-fast Python package manager.
-  * **Docker & Docker Compose:** For running RabbitMQ and PostgreSQL.
-  * **Make:** For executing the simplified startup commands.
-
------
-
-## 🛠️ Setup & Installation
-
-1.  **Clone the repository and navigate to the root directory:**
-
-    ```bash
-    cd ana
-    ```
-
-2.  **Sync the dependencies:**
-    This command uses `uv` to resolve the monorepo workspace and install all dependencies into a unified virtual environment.
-
-    ```bash
-    make sync
-    ```
-
-3.  **Start the Infrastructure:**
-    Spin up the RabbitMQ Event Broker and the PostgreSQL Database in the background.
-
-    ```bash
-    make up
-    ```
-
-    *(Note: You can view the RabbitMQ management dashboard at `http://localhost:15672` using `guest` / `guest`).*
-
------
+---
 
 ## 🏃‍♂️ Running the System
 
-Because Ana is a distributed system, each component runs as its own non-blocking process. You will need to open **multiple terminal tabs** (one for each service).
+Ana's microservices run independently. You will need to open a separate terminal tab/window for each component. 
 
-**⚠️ IMPORTANT BOOT ORDER:** The Configurator *must* be started first, as all other components pause their startup to fetch their settings from it.
+*Note: The **Configurator** must be started first, as it generates and serves the YAML configuration files for the rest of the system.*
 
-**Terminal 1:** Start the Configurator
-
+**Terminal 1: Configurator**
 ```bash
-make run-configurator
+make run-configurator INSTANCE=devel
+```
+*(On its first run, this will create `~/ana/devel/` and copy all default configuration files there).*
+
+**Terminal 2: Store**
+```bash
+make run-store INSTANCE=devel
 ```
 
-*Wait for the Configurator to show `configuration_served`, then start the rest in separate terminals:*
-
-**Terminal 2:** Start the Blob Store
-
+**Terminal 3: Memory**
 ```bash
-make run-store
+make run-memory INSTANCE=devel
 ```
 
-**Terminal 3:** Start the Interface (Chat Bridge & Scraper)
-
+**Terminal 4: Interface**
 ```bash
-make run-interface
+make run-interface INSTANCE=devel
 ```
 
-**Terminal 4:** Start the Controller (Decision Engine)
-
+**Terminal 5: Controller**
 ```bash
-make run-controller
+make run-controller INSTANCE=devel
 ```
 
-**Terminal 5:** Start the Actor (Execution Engine)
-
+**Terminal 6: Actor**
 ```bash
-make run-actor
+make run-actor INSTANCE=devel
 ```
 
-**Terminal 6:** Start the Memory (Database logging)
-
+**Terminal 7: Inspector (UI)**
 ```bash
-make run-memory
+make run-inspector INSTANCE=devel
 ```
 
-**Terminal 7:** Start the Inspector (Admin Dashboard)
+---
 
-```bash
-make run-inspector
-```
+## 📊 The Inspector Dashboard
 
------
+Once everything is running, you can monitor the system, view saved HTML/XML artifacts, and browse the database via the Inspector web UI.
 
-## 🎮 Interacting with Ana
+1. Open your browser and navigate to: `http://localhost:8006/dashboard`
+2. **Login Credentials:**
+   * **Username:** `admin`
+   * **Password:** `admin`
 
-### 1\. Trigger the Chat Flow
+*(If you are accessing it from another device on your local network, replace `localhost` with your machine's local IP address).*
 
-You can simulate an external proxy website sending a user message to Ana. Run this `curl` command in a new terminal:
+---
 
-```bash
-curl -X POST http://localhost:8000/webhook/chat \
-     -H "Content-Type: application/json" \
-     -d '{"user_id": "user_123", "message": "Trigger the full system!"}'
-```
+## ⚙️ Configuration Management
 
-*Watch your terminal logs\! You will see the event flow through the Interface -\> Controller -\> Memory -\> Actor -\> Interface -\> Memory, tracked perfectly via a unified `correlation_id`.*
+Ana uses an "Instance-Based Configuration" model. Your active configuration files are **not** loaded from the Git repository. 
 
-### 2\. View the Admin Dashboard
+When you run `make run-configurator INSTANCE=devel`, the system creates a folder at:
+`~/ana/devel/`
 
-The Inspector aggregates the health and state of every running component.
+To change Ana's behavior (like adding new websites to scrape, changing the ETL intervals, or enabling/disabling rules), edit the YAML files located in that `~/ana/devel/` directory. The changes will be applied upon restarting the respective component.
 
-  * **URL:** [http://localhost:8006/dashboard](https://www.google.com/search?q=http://localhost:8006/dashboard)
-  * **Username:** `admin`
-  * **Password:** `supersecretpassword`
+---
 
-### 3\. Shutting Down
+## 🧹 Teardown & Reset
 
-To gracefully stop the Python processes, press `Ctrl+C` in each terminal tab.
-To spin down the Docker infrastructure and remove the containers, run:
-
+**To stop the infrastructure:**
 ```bash
 make down
 ```
 
------
-
-## 📁 Project Structure
-
-```text
-ana/
-├── pyproject.toml            # Root workspace config
-├── uv.lock                   # Unified dependency lockfile
-├── docker-compose.yml        # Infrastructure config
-├── Makefile                  # Helper commands
-├── packages/
-│   └── shared/               # Pure Python domain models (Events)
-└── apps/                     # Executable Microservices
-    ├── configurator/
-    ├── store/
-    ├── interface/
-    ├── controller/
-    ├── actor/
-    ├── memory/
-    └── inspector/
+**To completely wipe all data (Factory Reset):**
+If you want to permanently delete all databases, chat history, downloaded files, and RabbitMQ queues to start completely fresh:
+```bash
+docker compose down -v
 ```
+*(After doing this, you will need to run `make up` and `make provision INSTANCE=devel` again).*
