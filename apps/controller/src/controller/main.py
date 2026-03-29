@@ -86,11 +86,11 @@ class UserPromptHandler:
         request_event = ContextRequested(
             correlation_id=event.correlation_id,
             user_id=event.user_id,
+            query_reference=event.text,  # <-- Added: Pass the actual message text!
             reply_to_topic="context_responses"
         )
         await self._host.publish(request_event, queue="context_requests")
         log.info("chat_history_requested")
-
 
 # ... (Host setup) ...
 

@@ -33,7 +33,14 @@ class ScrapingEventSource:
 
     async def start(self) -> None:
         if not self._host: raise RuntimeError("ScrapingEventSource not registered")
-        self.scheduler.add_job(self._scrape_all, 'interval', minutes=self.interval, id='scrape_job')
+        self.scheduler.add_job(
+            self._scrape_all,
+            'interval',
+            minutes=self.interval,
+            id='scrape_job',
+            misfire_grace_time=None,  # Tell APScheduler not to drop delayed jobs
+            coalesce=True             # If multiple runs were missed (e.g., overnight sleep), only run once upon waking
+        )
         self.scheduler.start()
 
     async def stop(self) -> None:
@@ -65,8 +72,8 @@ class ScrapingEventSource:
             client = self._get_client(backend)
             html_content = await client.fetch_html(url)
 
-            # 2. Upload to the actual Store component!
-            async with httpx.AsyncClient() as http_client:
+            # 2. Upload to the actual Store component! (WITH TIMEOUT HERE TOO)
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
                 files = {'file': ('scraped.html', html_content.encode('utf-8'), 'text/html')}
                 data = {'retention_policy': 'standard'}
                 resp = await http_client.post(self.store_api_url, files=files, data=data)
@@ -102,8 +109,15 @@ class RSSEventSource:
         self._host = host_component
 
     async def start(self) -> None:
-        if not self._host: raise RuntimeError("RssEventSource not registered")
-        self.scheduler.add_job(self._fetch_all, 'interval', minutes=self.interval, id='rss_job')
+        if not self._host: raise RuntimeError("RSSEventSource not registered")
+        self.scheduler.add_job(
+            self._fetch_all,
+            'interval',
+            minutes=self.interval,
+            id='rss_job',
+            misfire_grace_time=None,  # Same fixes here
+            coalesce=True
+        )
         self.scheduler.start()
 
     async def stop(self) -> None:
@@ -124,7 +138,7 @@ class RSSEventSource:
             xml_content = await self.client.fetch_html(url)
 
             # 2. Upload to Store with the correct mime type
-            async with httpx.AsyncClient() as http_client:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
                 files = {'file': ('feed.xml', xml_content.encode('utf-8'), 'application/rss+xml')}
                 data = {'retention_policy': 'standard'}
                 resp = await http_client.post(self.store_api_url, files=files, data=data)

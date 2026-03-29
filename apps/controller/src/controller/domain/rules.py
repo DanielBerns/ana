@@ -70,6 +70,38 @@ class ETLRoutingRule(BaseRule):
                     payload={"domain": source_url, "instruction": command.instruction}
                 )
 
+class ChatRoutingRule(BaseRule):
+    """Routes chat context to the Actor to generate an LLM response."""
+
+    async def evaluate(self, context_event: Any) -> None:
+        if not self.enabled or not self._host:
+            return
+
+        # Check if the context was triggered by a chat prompt
+        trigger = getattr(context_event, "trigger_event", {})
+        if trigger and trigger.get("event_type") == "ContextRequested" and "query" in trigger:
+            correlation_id = getattr(context_event, "correlation_id", str(uuid.uuid4()))
+            user_id = getattr(context_event, "user_id", "unknown")
+            context_data = getattr(context_event, "context_data", {})
+
+            # Publish the command for the Actor
+            command = CommandIssued(
+                correlation_id=correlation_id,
+                target_component="actor",
+                instruction="generate_chat_reply",
+                payload={
+                    "user_id": user_id,
+                    "chat_history": context_data.get("chat_history", []),
+                    "current_query": trigger.get("query")
+                }
+            )
+            await self._host.publish(command, queue="commands")
+
+            logger.info(
+                "chat_rule_triggered",
+                payload={"user_id": user_id, "instruction": command.instruction}
+            )
+
 
 class RuleEngine:
     def __init__(self, config: dict[str, Any]):
@@ -81,6 +113,7 @@ class RuleEngine:
         # Here you map config names to actual Python classes
         rule_classes = {
             "ETLRoutingRule": ETLRoutingRule,
+            "ChatRoutingRule": ChatRoutingRule,
             # Add other rules here as you build them
         }
 
@@ -100,3 +133,4 @@ class RuleEngine:
         for rule in self.rules.values():
             if rule.enabled:
                 await rule.evaluate(context_data)
+
