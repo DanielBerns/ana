@@ -13,3 +13,5 @@ rules:
     target_domains:
       - "comodoro-supermarkets.com.ar"
       - "news-portal.com"
+  ChatRoutingRule:
+    enabled: true

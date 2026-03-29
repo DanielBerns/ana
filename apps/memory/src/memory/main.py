@@ -1,157 +1,151 @@
+import os
 import uuid
+from typing import Any
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from datetime import datetime, timezone
-
-# SQLAlchemy 2.0 Async imports
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
-from sqlalchemy.orm import declarative_base, Mapped, mapped_column
-from sqlalchemy import String, DateTime, select
 from faststream.rabbit.fastapi import RabbitRouter
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import select
 
-# Import our shared data contracts and config utilities
-from shared.events import TaskCompleted, ContextRequested, ContextProvided
+from shared.events import ContextRequested, ContextProvided, ActionRequired, SystemFatalError, ConfigurationUpdated, BaseEvent
 from shared.config import setup_logger, fetch_dynamic_config
+from shared.protocols import EventHandler, ComponentHost, Configurable
 
-# --- Logging Setup ---
+from .domain.models import Base, MessageRecord
+
 logger = setup_logger("memory_component")
 
-# ==========================================
-# DYNAMIC CONFIGURATION STATE (Synchronous Boot)
-# ==========================================
 DYNAMIC_CONFIG = fetch_dynamic_config("memory", logger)
-
-# Extract strictly required connection URLs
 rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
-database_url = DYNAMIC_CONFIG.get("database_url")
+database_url = DYNAMIC_CONFIG["database_url"]
 
-if not database_url:
-    raise RuntimeError("Configuration missing 'database_url'")
-
-# Initialize the Router and Database Engine WITH the fetched URLs
-router = RabbitRouter(rabbitmq_url)
 engine = create_async_engine(database_url, echo=False)
-AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+router = RabbitRouter(rabbitmq_url)
 
-# --- Database Setup (Driven Adapter) ---
-Base = declarative_base()
+class MemoryHost:
+    def __init__(self, faststream_router: RabbitRouter):
+        self.router = faststream_router
+    async def publish(self, event: BaseEvent, queue: str) -> None:
+        await self.router.broker.publish(event, queue=queue)
+    async def subscribe(self, topic: str, handler: EventHandler) -> None:
+        self.router.subscriber(topic)(handler.handle)
 
-class TaskRecord(Base):
-    """SQLAlchemy ORM Model for storing TaskCompleted events."""
-    __tablename__ = "operational_records"
+host = MemoryHost(router)
 
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    correlation_id: Mapped[str] = mapped_column(String, index=True)
-    task_name: Mapped[str] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String)
-    result_summary: Mapped[str] = mapped_column(String)
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+class MemoryHandler:
+    def __init__(self, config: dict[str, Any]):
+        self._host: ComponentHost | None = None
+        self.update_config(config)
 
+    def update_config(self, params: dict[str, Any]) -> None:
+        self.history_limit = params.get("history_limit", 10)
 
-# ==========================================
-# EVENT CONSUMERS & PRODUCERS
-# ==========================================
+    async def register(self, host_component: ComponentHost) -> None:
+        self._host = host_component
+        await host_component.subscribe("context_requests", self)
 
-@router.subscriber("task_results")
-async def handle_task_completed(event: TaskCompleted):
-    """
-    Consumes TaskCompleted events silently to log operational records.
-    """
-    log = logger.bind(correlation_id=event.correlation_id)
-    log.info("task_completed_consumed", payload={"task_name": event.task_name, "status": event.status})
+    async def handle(self, event: ContextRequested) -> None:
+        log = logger.bind(correlation_id=event.correlation_id, user_id=event.user_id)
 
-    # Save the record to PostgreSQL
-    async with AsyncSessionLocal() as session:
-        try:
-            record = TaskRecord(
-                correlation_id=event.correlation_id,
-                task_name=event.task_name,
-                status=event.status,
-                result_summary=event.result_summary
+        async with AsyncSessionLocal() as session:
+            # 1. Save the incoming User prompt using the correct attribute
+            if event.query_reference and event.user_id:
+                new_msg = MessageRecord(user_id=event.user_id, role="user", content=event.query_reference)
+                session.add(new_msg)
+                await session.commit()
+
+            # 2. Fetch the recent history
+            result = await session.execute(
+                select(MessageRecord)
+                .where(MessageRecord.user_id == event.user_id)
+                .order_by(MessageRecord.created_at.desc())
+                .limit(self.history_limit)
             )
-            session.add(record)
-            await session.commit()
-            log.info("record_saved_to_db")
-        except Exception as e:
-            await session.rollback()
-            log.error("db_insert_failed", payload={"error": str(e)})
-
-
-@router.subscriber("context_requests")
-async def handle_context_requested(event: ContextRequested):
-    """
-    Consumes requests for history, queries the DB, and publishes the context back.
-    """
-    log = logger.bind(correlation_id=event.correlation_id)
-    log.info("context_request_consumed", payload={"user_id": event.user_id, "query_reference": event.query_reference})
-
-    history_data = []
-
-    # Dynamically fetch the history limit from our configuration (default to 5 if missing)
-    history_limit = DYNAMIC_CONFIG.get("history_limit", 5)
-
-    async with AsyncSessionLocal() as session:
-        try:
-            # For this example, we fetch past tasks associated with this workflow/user
-            stmt = select(TaskRecord).order_by(TaskRecord.timestamp.desc()).limit(history_limit)
-            result = await session.execute(stmt)
             records = result.scalars().all()
 
-            for r in records:
-                history_data.append({
-                    "task_name": r.task_name,
-                    "status": r.status,
-                    "summary": r.result_summary,
-                    "timestamp": r.timestamp.isoformat()
-                })
-            log.info("db_queried_for_context", payload={"records_found": len(history_data), "limit_applied": history_limit})
+            # Reverse to chronological order
+            history = [{"role": r.role, "content": r.content} for r in reversed(records)]
 
+        # 3. Publish Context (Mapping query_reference back to "query" so the ChatRoutingRule understands it)
+        provided_event = ContextProvided(
+            correlation_id=event.correlation_id,
+            user_id=event.user_id,
+            context_data={"chat_history": history},
+            trigger_event={"event_type": "ContextRequested", "query": event.query_reference}
+        )
+        await self._host.publish(provided_event, queue="context_provided")
+        log.info("context_provided", payload={"history_length": len(history)})
+
+
+class AssistantReplyListener:
+    """Listens to actions to save the Assistant's reply into the DB."""
+    def __init__(self, config: dict[str, Any]):
+        self._host: ComponentHost | None = None
+        self.update_config(config)
+
+    def update_config(self, params: dict[str, Any]) -> None:
+        self.enabled = params.get("enabled", True)
+
+    async def register(self, host_component: ComponentHost) -> None:
+        self._host = host_component
+        await host_component.subscribe("actions", self)
+
+    async def handle(self, event: ActionRequired) -> None:
+        if not self.enabled or event.action_type != "reply_to_chat" or not event.user_id:
+            return
+
+        async with AsyncSessionLocal() as session:
+            reply_msg = MessageRecord(user_id=event.user_id, role="assistant", content=str(event.payload))
+            session.add(reply_msg)
+            await session.commit()
+            logger.info("assistant_reply_saved_to_memory", payload={"user_id": event.user_id})
+
+# ... SystemHandler definition remains standard ...
+class SystemHandler:
+    def __init__(self, component_name: str, registry: dict[str, Configurable]):
+        self.component_name = component_name
+        self.registry = registry
+        self._host: ComponentHost | None = None
+    async def register(self, host_component: ComponentHost) -> None:
+        self._host = host_component
+        await host_component.subscribe("system.config_updates", self)
+    async def handle(self, event: ConfigurationUpdated) -> None:
+        if event.target_component not in (self.component_name, "all"): return
+        try:
+            for name, config_data in event.new_configuration.get("event_handlers", {}).items():
+                if name in self.registry: self.registry[name].update_config(config_data)
         except Exception as e:
-            log.error("db_query_failed", payload={"error": str(e)})
-
-    # Publish the context back to the requested topic (usually "context_responses")
-    response_event = ContextProvided(
-        correlation_id=event.correlation_id,
-        user_id=event.user_id,
-        history=history_data
-    )
-
-    await router.broker.publish(response_event, queue=event.reply_to_topic)
-    log.info("context_provided_published", payload={"reply_to": event.reply_to_topic})
+            await self._host.publish(SystemFatalError(correlation_id=event.correlation_id, component=self.component_name, error_reason=str(e), bad_configuration=event.new_configuration), queue="system.fatal_errors")
+            os._exit(1)
 
 
-# ==========================================
-# inspector API & APP LIFECYCLE
-# ==========================================
+# App Lifecycle
+handler_config = DYNAMIC_CONFIG.get("event_handlers", {})
+memory_handler = MemoryHandler(handler_config.get("MemoryHandler", {}))
+reply_listener = AssistantReplyListener(handler_config.get("AssistantReplyListener", {}))
+
+registry: dict[str, Configurable] = {
+    "MemoryHandler": memory_handler,
+    "AssistantReplyListener": reply_listener
+}
+system_handler = SystemHandler("memory", registry)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initializes DB tables and manages the broker connection."""
-
-    # 1. Initialize Database Tables (In production, use Alembic migrations instead!)
+    # Initialize DB
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        logger.info("database_tables_initialized")
 
-    # 2. FastStream's lifespan_context handles the RabbitMQ connection automatically
+    await memory_handler.register(host)
+    await reply_listener.register(host)
+    await system_handler.register(host)
     logger.info("memory_startup_complete")
-    yield # App is running
+    yield
 
-    # 3. Graceful shutdown of the database engine
-    if engine:
-        await engine.dispose()
-        logger.info("database_engine_disposed")
-
-# Initialize the FastAPI app and attach the FastStream router
 app = FastAPI(lifespan=lifespan, title="Ana Memory Component")
 app.include_router(router)
 
 @app.get("/inspector")
-async def diagnostic_endpoint():
-    """Lightweight read-only API for the Inspector."""
-    return {
-        "status": "healthy",
-        "component": "memory",
-        "database_connected": engine is not None,
-        "active_config": DYNAMIC_CONFIG
-    }
+async def inspector_endpoint():
+    return {"status": "healthy", "component": "memory", "active_config": DYNAMIC_CONFIG}

@@ -8,7 +8,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 class HttpxClient:
     """Lightweight, fast client for static HTML scraping."""
     def __init__(self):
-        self.client = httpx.AsyncClient()
+        # A strict 30-second timeout to prevent blocking
+        self.client = httpx.AsyncClient(timeout=30.0)
 
     async def fetch_html(self, url: str) -> str:
         response = await self.client.get(url, follow_redirects=True)
