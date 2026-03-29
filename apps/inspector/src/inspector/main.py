@@ -81,3 +81,27 @@ async def delete_file(request: Request, hash_id: str, username: str = Depends(ve
     async with httpx.AsyncClient() as client:
         await client.delete(f"{STORE_API_BASE}/admin/files/{hash_id}")
     return HTMLResponse(content="")
+
+# --- Database Browser (Read-Only) ---
+MEMORY_API_BASE = "http://localhost:8002"
+
+@app.get("/browser/database", response_class=HTMLResponse)
+async def database_browser(request: Request, username: str = Depends(verify_credentials)):
+    """Renders the main layout for the Database Browser."""
+    return templates.TemplateResponse(request=request, name="database.html", context={"request": request})
+
+@app.get("/browser/database/table", response_class=HTMLResponse)
+async def database_table(request: Request, table: str = "chat_history", username: str = Depends(verify_credentials)):
+    """Fetches data from internal components based on the selected table."""
+    rows = []
+
+    if table == "chat_history":
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(f"{MEMORY_API_BASE}/admin/tables/chat_history")
+                if resp.status_code == 200:
+                    rows = resp.json()
+            except Exception as e:
+                logger.error("db_fetch_failed", payload={"table": table, "error": str(e)})
+
+    return templates.TemplateResponse(request=request, name="database_table.html", context={"request": request, "rows": rows, "table": table})

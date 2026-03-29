@@ -67,14 +67,22 @@ class MemoryHandler:
             # Reverse to chronological order
             history = [{"role": r.role, "content": r.content} for r in reversed(records)]
 
-        # 3. Publish Context (Mapping query_reference back to "query" so the ChatRoutingRule understands it)
+        # 3. Publish Context
         provided_event = ContextProvided(
             correlation_id=event.correlation_id,
             user_id=event.user_id,
-            context_data={"chat_history": history},
-            trigger_event={"event_type": "ContextRequested", "query": event.query_reference}
+            history=history
         )
-        await self._host.publish(provided_event, queue="context_provided")
+
+        # We dynamically attach trigger_event so the Controller's ChatRoutingRule can see it
+        # without breaking Pydantic's strict schema validation!
+        provided_event.__dict__["trigger_event"] = {
+            "event_type": "ContextRequested",
+            "query": event.query_reference
+        }
+
+        # Note: Use getattr to safely default the reply_to_topic if it's missing
+        await self._host.publish(provided_event, queue=getattr(event, "reply_to_topic", "context_responses"))
         log.info("context_provided", payload={"history_length": len(history)})
 
 
@@ -149,3 +157,25 @@ app.include_router(router)
 @app.get("/inspector")
 async def inspector_endpoint():
     return {"status": "healthy", "component": "memory", "active_config": DYNAMIC_CONFIG}
+
+# ==========================================
+# ADMIN ENDPOINTS (For Inspector BFF)
+# ==========================================
+@app.get("/admin/tables/chat_history")
+async def admin_chat_history(limit: int = 50, offset: int = 0):
+    """Exposes the chat_history table for the Inspector UI."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(MessageRecord).order_by(MessageRecord.created_at.desc()).offset(offset).limit(limit)
+        )
+        records = result.scalars().all()
+        return [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "role": r.role,
+                "content": r.content,
+                "created_at": r.created_at.isoformat() if r.created_at else None
+            }
+            for r in records
+        ]
