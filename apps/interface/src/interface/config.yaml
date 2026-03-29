@@ -15,7 +15,6 @@ event_sources:
       # You can add a selenium target here when you want to test it:
       # - url: "https://en.wikipedia.org/wiki/Main_Page"
       #   backend: "selenium"
-
   RSSEventSource:
     enabled: true
     interval_minutes: 60
@@ -26,7 +25,6 @@ event_sources:
       - "https://www.clarin.com/rss/economia/"
       - "https://feeds.bbci.co.uk/news/rss.xml"
       - "https://hnrss.org/frontpage"
-
 event_handlers:
   ProxyActionHandler:
     enabled: true
