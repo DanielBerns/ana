@@ -83,7 +83,7 @@ async def delete_file(request: Request, hash_id: str, username: str = Depends(ve
     return HTMLResponse(content="")
 
 # --- Database Browser (Read-Only) ---
-MEMORY_API_BASE = "http://localhost:8002"
+MEMORY_API_BASE = "http://localhost:8004"
 
 @app.get("/browser/database", response_class=HTMLResponse)
 async def database_browser(request: Request, username: str = Depends(verify_credentials)):

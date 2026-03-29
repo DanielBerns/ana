@@ -51,12 +51,15 @@ class SystemHandler:
             os._exit(1)
 
 # App Lifecycle
-source_config = DYNAMIC_CONFIG.get("event_sources", {}).get("ScrapingEventSource", {})
-handler_config = DYNAMIC_CONFIG.get("event_handlers", {}).get("ProxyActionHandler", {})
+# Fetch the top-level parent dictionaries
+source_config = DYNAMIC_CONFIG.get("event_sources", {})
+handler_config = DYNAMIC_CONFIG.get("event_handlers", {})
 
+# Extract the correct child blocks
 scraping_source = ScrapingEventSource(source_config.get("ScrapingEventSource", {}))
-rss_source = RSSEventSource(source_config.get("RssEventSource", {}))
+rss_source = RSSEventSource(source_config.get("RSSEventSource", {}))
 proxy_handler = ProxyActionHandler(handler_config.get("ProxyActionHandler", {}))
+
 
 registry: dict[str, Configurable] = {
     "ScrapingEventSource": scraping_source,
