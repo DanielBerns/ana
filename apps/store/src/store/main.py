@@ -235,3 +235,62 @@ async def get_collection(collection_id: str):
 @app.get("/inspector")
 async def inspector_endpoint():
     return {"status": "healthy", "component": "store", "active_config": DYNAMIC_CONFIG}
+
+# ==========================================
+# ADMIN ENDPOINTS (For Inspector BFF)
+# ==========================================
+from pydantic import BaseModel
+
+class RetentionUpdate(BaseModel):
+    policy: str
+
+@app.get("/admin/files")
+async def admin_list_files(limit: int = 50, offset: int = 0):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(FileRecord).order_by(FileRecord.created_at.desc()).offset(offset).limit(limit)
+        )
+        records = result.scalars().all()
+        return [
+            {
+                "hash_id": r.hash_id,
+                "original_filename": r.original_filename,
+                "mime_type": r.mime_type,
+                "size_bytes": r.size_bytes,
+                "collection_id": r.collection_id,
+                "retention_policy": r.retention_policy,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "expires_at": r.expires_at.isoformat() if r.expires_at else None
+            }
+            for r in records
+        ]
+
+@app.delete("/admin/files/{hash_id}")
+async def admin_delete_file(hash_id: str):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(FileRecord).where(FileRecord.hash_id == hash_id))
+        record = result.scalars().first()
+        if not record:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        await storage.delete(hash_id)
+        await session.delete(record)
+        await session.commit()
+    return {"status": "deleted"}
+
+@app.patch("/admin/files/{hash_id}/retention")
+async def admin_update_retention(hash_id: str, payload: RetentionUpdate):
+    async with AsyncSessionLocal() as session:
+        expires_at = None
+        if payload.policy == "ephemeral":
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        elif payload.policy == "standard":
+            expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+
+        await session.execute(
+            update(FileRecord)
+            .where(FileRecord.hash_id == hash_id)
+            .values(retention_policy=payload.policy, expires_at=expires_at)
+        )
+        await session.commit()
+    return {"status": "updated", "policy": payload.policy}

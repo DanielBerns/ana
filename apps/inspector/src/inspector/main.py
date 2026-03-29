@@ -1,111 +1,83 @@
-import asyncio
+import os
+from typing import Any
 import httpx
-import secrets
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Depends, Request, Form
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
+import asyncio
 
-# Import our shared config utilities
 from shared.config import setup_logger, fetch_dynamic_config
 
-# --- Logging Setup ---
 logger = setup_logger("inspector_component")
-
-# ==========================================
-# DYNAMIC CONFIGURATION STATE (Synchronous Boot)
-# ==========================================
 DYNAMIC_CONFIG = fetch_dynamic_config("inspector", logger)
-
 security = HTTPBasic()
 
-# ==========================================
-# AUTHENTICATION
-# ==========================================
-def verify_admin_user(credentials: HTTPBasicCredentials = Depends(security)):
-    """Enforces human user authentication as per the specification."""
-    correct_username = secrets.compare_digest(credentials.username, DYNAMIC_CONFIG.get("admin_username", "admin"))
-    correct_password = secrets.compare_digest(credentials.password, DYNAMIC_CONFIG.get("admin_password", "admin"))
+# Setup Templates relative to the current file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
-    if not (correct_username and correct_password):
-        logger.warning("failed_login_attempt", payload={"username": credentials.username})
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
+app = FastAPI(title="Ana Inspector Component")
+
+# --- Security ---
+def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
+    config_user = DYNAMIC_CONFIG.get("admin_username", "admin")
+    config_pass = DYNAMIC_CONFIG.get("admin_password", "admin")
+    if credentials.username != config_user or credentials.password != config_pass:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"})
     return credentials.username
 
-# ==========================================
-# inspector AGGREGATION
-# ==========================================
+
+# --- Dashboard ---
 async def fetch_inspector(client: httpx.AsyncClient, name: str, url: str):
-    """Fetches the inspector state of a single component."""
     try:
         response = await client.get(url, timeout=2.0)
-        response.raise_for_status()
         return name, response.json()
     except Exception as e:
         logger.error("inspector_fetch_failed", payload={"component": name, "error": str(e)})
-        return name, {"status": "unreachable", "error": str(e)}
+        return name, {"status": "offline", "error": str(e)}
 
-# Initialize the FastAPI app
-app = FastAPI(title="Ana Inspector Dashboard")
-
-# ==========================================
-# DASHBOARD ENDPOINT
-# ==========================================
 @app.get("/dashboard", response_class=HTMLResponse)
-async def admin_dashboard(username: str = Depends(verify_admin_user)):
-    """
-    Aggregates system state and renders an HTML report.
-    """
+async def dashboard(request: Request, username: str = Depends(verify_credentials)):
     targets = DYNAMIC_CONFIG.get("components_to_monitor", {})
-
-    # Concurrently fetch inspectors from all components
     async with httpx.AsyncClient() as client:
         tasks = [fetch_inspector(client, name, url) for name, url in targets.items()]
         results = await asyncio.gather(*tasks)
 
-    system_state = dict(results)
+    inspectors = dict(results)
+    return templates.TemplateResponse(request=request, name="dashboard.html", context={"request": request, "inspectors": inspectors})
 
-    # Render a simple, clean HTML dashboard
-    html_content = f"""
-    <html>
-        <head>
-            <title>Ana System Inspector</title>
-            <style>
-                body {{ font-family: sans-serif; background-color: #f4f4f9; color: #333; padding: 20px; }}
-                h1 {{ color: #2c3e50; }}
-                .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }}
-                .card {{ background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
-                .status-healthy {{ color: green; font-weight: bold; }}
-                .status-unreachable {{ color: red; font-weight: bold; }}
-                pre {{ background: #eee; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 0.85em; }}
-            </style>
-        </head>
-        <body>
-            <h1>Ana System Inspector Dashboard</h1>
-            <p>Welcome, <b>{username}</b>. Here is the real-time aggregated state of the distributed system.</p>
-            <div class="grid">
-    """
+# --- Store Browser (Read/Write) ---
+STORE_API_BASE = "http://localhost:8001"
 
-    for name, data in system_state.items():
-        status_class = "status-healthy" if data.get("status") == "healthy" else "status-unreachable"
-        html_content += f"""
-                <div class="card">
-                    <h2>{name.capitalize()}</h2>
-                    <p>Status: <span class="{status_class}">{data.get('status', 'unknown')}</span></p>
-                    <details>
-                        <summary>View Raw JSON Data</summary>
-                        <pre>{data}</pre>
-                    </details>
-                </div>
-        """
+@app.get("/browser/store", response_class=HTMLResponse)
+async def store_browser(request: Request, username: str = Depends(verify_credentials)):
+    """Renders the main layout for the Store Browser."""
+    return templates.TemplateResponse(request=request, name="store.html", context={"request": request})
 
-    html_content += """
-            </div>
-        </body>
-    </html>
-    """
+@app.get("/browser/store/table", response_class=HTMLResponse)
+async def store_table(request: Request, username: str = Depends(verify_credentials)):
+    """Fetches data from Store component and renders just the table rows for HTMX."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{STORE_API_BASE}/admin/files")
+        files = resp.json() if resp.status_code == 200 else []
 
-    return html_content
+    return templates.TemplateResponse(request=request, name="store_table.html", context={"request": request, "files": files})
+
+@app.post("/browser/store/{hash_id}/retention", response_class=HTMLResponse)
+async def update_retention(request: Request, hash_id: str, policy: str = Form(...), username: str = Depends(verify_credentials)):
+    """Proxy action to change retention. Returns nothing, triggering HTMX to refresh the table."""
+    async with httpx.AsyncClient() as client:
+        await client.patch(f"{STORE_API_BASE}/admin/files/{hash_id}/retention", json={"policy": policy})
+
+    # After updating, we just trigger a table refresh
+    headers = {"HX-Trigger": "load"}
+    return HTMLResponse(status_code=200, headers=headers)
+
+@app.delete("/browser/store/{hash_id}/delete", response_class=HTMLResponse)
+async def delete_file(request: Request, hash_id: str, username: str = Depends(verify_credentials)):
+    """Proxy action to delete file. Returns empty string to HTMX, which removes the row from the DOM."""
+    async with httpx.AsyncClient() as client:
+        await client.delete(f"{STORE_API_BASE}/admin/files/{hash_id}")
+    return HTMLResponse(content="")

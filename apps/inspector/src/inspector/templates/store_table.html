@@ -1,0 +1,48 @@
+<table class="table table-hover table-striped mb-0 align-middle">
+    <thead class="table-dark">
+        <tr>
+            <th>Filename</th>
+            <th>Mime Type</th>
+            <th>Size</th>
+            <th>Collection</th>
+            <th>Retention</th>
+            <th class="text-end">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for file in files %}
+        <tr id="row-{{ file.hash_id }}">
+            <td class="text-truncate" style="max-width: 200px;" title="{{ file.hash_id }}">
+                {{ file.original_filename }}<br>
+                <small class="text-muted">{{ file.hash_id[:15] }}...</small>
+            </td>
+            <td><span class="badge bg-secondary">{{ file.mime_type }}</span></td>
+            <td>{{ (file.size_bytes / 1024)|round(1) }} KB</td>
+            <td>{{ file.collection_id or '-' }}</td>
+            <td>
+                <select class="form-select form-select-sm"
+                        hx-post="/browser/store/{{ file.hash_id }}/retention"
+                        hx-target="#row-{{ file.hash_id }}"
+                        hx-swap="outerHTML"
+                        name="policy">
+                    <option value="ephemeral" {% if file.retention_policy == 'ephemeral' %}selected{% endif %}>Ephemeral</option>
+                    <option value="standard" {% if file.retention_policy == 'standard' %}selected{% endif %}>Standard</option>
+                    <option value="preserved" {% if file.retention_policy == 'preserved' %}selected{% endif %}>Preserved</option>
+                </select>
+            </td>
+            <td class="text-end">
+                <a href="http://localhost:8001/files/{{ file.hash_id }}" target="_blank" class="btn btn-sm btn-outline-info">Download</a>
+                <button class="btn btn-sm btn-outline-danger"
+                        hx-delete="/browser/store/{{ file.hash_id }}/delete"
+                        hx-target="#row-{{ file.hash_id }}"
+                        hx-swap="outerHTML"
+                        hx-confirm="Are you sure you want to delete this artifact?">
+                    Delete
+                </button>
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center p-4">No files found in the Store.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
