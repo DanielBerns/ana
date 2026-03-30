@@ -15,9 +15,9 @@ from .domain.models import Base, MessageRecord
 
 logger = setup_logger("memory_component")
 
-DYNAMIC_CONFIG = fetch_dynamic_config("memory", logger)
-rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
-database_url = DYNAMIC_CONFIG["database_url"]
+DYNAMIC_CONFIG = fetch_dynamic_config("memory")
+rabbitmq_url = DYNAMIC_CONFIG["global"]["rabbitmq_url"]
+database_url = DYNAMIC_CONFIG["global"]["database_url"]
 
 engine = create_async_engine(database_url, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
