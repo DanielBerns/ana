@@ -14,8 +14,8 @@ from .adapters.sources import ScrapingEventSource, RSSEventSource
 from .adapters.handlers import ProxyActionHandler
 
 logger = setup_logger("interface_component")
-DYNAMIC_CONFIG = fetch_dynamic_config("interface", logger)
-rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
+DYNAMIC_CONFIG = fetch_dynamic_config("interface")
+rabbitmq_url = DYNAMIC_CONFIG["global"]["rabbitmq_url"]
 router = RabbitRouter(rabbitmq_url)
 
 class InterfaceHost:
@@ -51,12 +51,15 @@ class SystemHandler:
             os._exit(1)
 
 # App Lifecycle
-source_config = DYNAMIC_CONFIG.get("event_sources", {}).get("ScrapingEventSource", {})
-handler_config = DYNAMIC_CONFIG.get("event_handlers", {}).get("ProxyActionHandler", {})
+# Fetch the top-level parent dictionaries
+source_config = DYNAMIC_CONFIG.get("event_sources", {})
+handler_config = DYNAMIC_CONFIG.get("event_handlers", {})
 
+# Extract the correct child blocks
 scraping_source = ScrapingEventSource(source_config.get("ScrapingEventSource", {}))
-rss_source = RSSEventSource(source_config.get("RssEventSource", {}))
+rss_source = RSSEventSource(source_config.get("RSSEventSource", {}))
 proxy_handler = ProxyActionHandler(handler_config.get("ProxyActionHandler", {}))
+
 
 registry: dict[str, Configurable] = {
     "ScrapingEventSource": scraping_source,
