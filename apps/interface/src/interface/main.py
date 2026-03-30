@@ -21,8 +21,10 @@ router = RabbitRouter(rabbitmq_url)
 class InterfaceHost:
     def __init__(self, faststream_router: RabbitRouter):
         self.router = faststream_router
+
     async def publish(self, event: BaseEvent, queue: str) -> None:
         await self.router.broker.publish(event, queue=queue)
+
     async def subscribe(self, topic: str, handler: EventHandler) -> None:
         self.router.subscriber(topic)(handler.handle)
 
@@ -33,22 +35,26 @@ class SystemHandler:
         self.component_name = component_name
         self.registry = registry
         self._host: ComponentHost | None = None
+
     async def register(self, host_component: ComponentHost) -> None:
         self._host = host_component
         await host_component.subscribe("system.config_updates", self)
+
     async def handle(self, event: ConfigurationUpdated) -> None:
         if event.target_component not in (self.component_name, "all"): return
         try:
             for name, config_data in event.new_configuration.get("event_sources", {}).items():
-                if name in self.registry: self.registry[name].update_config(config_data)
+                if name in self.registry:
+                    self.registry[name].update_config(config_data)
             for name, config_data in event.new_configuration.get("event_handlers", {}).items():
-                if name in self.registry: self.registry[name].update_config(config_data)
+                if name in self.registry:
+                    self.registry[name].update_config(config_data)
         except Exception as e:
             await self._host.publish(SystemFatalError(
                 correlation_id=event.correlation_id, component=self.component_name,
                 error_reason=str(e), bad_configuration=event.new_configuration
             ), queue="system.fatal_errors")
-            os._exit(1)
+            sys.exit(1)
 
 # App Lifecycle
 # Fetch the top-level parent dictionaries
