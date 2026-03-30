@@ -10,7 +10,7 @@ import asyncio
 from shared.config import setup_logger, fetch_dynamic_config
 
 logger = setup_logger("inspector_component")
-DYNAMIC_CONFIG = fetch_dynamic_config("inspector", logger)
+DYNAMIC_CONFIG = fetch_dynamic_config("inspector")
 security = HTTPBasic()
 
 # Setup Templates relative to the current file

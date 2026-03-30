@@ -13,8 +13,8 @@ from .infrastructure.llm import DummyLlmAdapter
 
 logger = setup_logger("actor_component")
 
-DYNAMIC_CONFIG = fetch_dynamic_config("actor", logger)
-rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
+DYNAMIC_CONFIG = fetch_dynamic_config("actor")
+rabbitmq_url = DYNAMIC_CONFIG["global"]["rabbitmq_url"]
 router = RabbitRouter(rabbitmq_url)
 
 class ActorHost:

@@ -21,8 +21,8 @@ logger = setup_logger("controller_component")
 # ==========================================
 # DYNAMIC CONFIGURATION STATE (BOOT)
 # ==========================================
-DYNAMIC_CONFIG = fetch_dynamic_config("controller", logger)
-rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
+DYNAMIC_CONFIG = fetch_dynamic_config("controller")
+rabbitmq_url = DYNAMIC_CONFIG["global"]["rabbitmq_url"]
 
 router = RabbitRouter(rabbitmq_url)
 
