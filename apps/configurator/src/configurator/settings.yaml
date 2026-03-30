@@ -1,11 +1,10 @@
 global:
   rabbitmq_url: "amqp://guest:guest@localhost:5672/"
   database_url: "postgresql+asyncpg://ana_admin:ana_password@localhost:5432/ana_db"
-
 component_configs:
-  interface: "apps/interface/src/interface/config.yaml"
-  actor: "apps/actor/src/actor/config.yaml"
-  controller: "apps/controller/src/controller/config.yaml"
-  memory: "apps/memory/src/memory/config.yaml"
-  store: "apps/store/src/store/config.yaml"
-  inspector: "apps/inspector/src/inspector/config.yaml"
+  interface: "interface.yaml"
+  actor: "actor.yaml"
+  controller: "controller.yaml"
+  memory: "memory.yaml"
+  store: "store.yaml"
+  inspector: "inspector.yaml"

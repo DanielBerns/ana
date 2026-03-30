@@ -14,8 +14,8 @@ from .adapters.sources import ScrapingEventSource, RSSEventSource
 from .adapters.handlers import ProxyActionHandler
 
 logger = setup_logger("interface_component")
-DYNAMIC_CONFIG = fetch_dynamic_config("interface", logger)
-rabbitmq_url = DYNAMIC_CONFIG["rabbitmq_url"]
+DYNAMIC_CONFIG = fetch_dynamic_config("interface")
+rabbitmq_url = DYNAMIC_CONFIG["global"]["rabbitmq_url"]
 router = RabbitRouter(rabbitmq_url)
 
 class InterfaceHost:

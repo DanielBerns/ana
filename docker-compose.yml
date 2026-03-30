@@ -1,7 +1,5 @@
 # ana/docker-compose.yml
 
-# version: "3.8"
-
 services:
   # 1. The Event Broker
   rabbitmq:

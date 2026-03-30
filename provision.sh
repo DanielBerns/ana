@@ -15,23 +15,22 @@ echo "=========================================="
 echo " Provisioning Infrastructure for: $INSTANCE"
 echo "=========================================="
 
-# Variables (Adjust these if your docker-compose.yml uses different service names)
+# Variables updated to match your docker-compose.yml exactly
 PG_SERVICE="postgres"
-PG_USER="admin"
+PG_USER="ana_admin"
+PG_DEFAULT_DB="ana_db"
 RMQ_SERVICE="rabbitmq"
 RMQ_USER="guest"
 
 # 1. Provision PostgreSQL Database
 DB_NAME="ana_${INSTANCE}"
 echo "[1/2] Creating PostgreSQL Database: $DB_NAME..."
-# We use '|| true' so the script doesn't crash if the database already exists
-docker compose exec -T $PG_SERVICE psql -U $PG_USER -c "CREATE DATABASE $DB_NAME;" || true
+# Connect to the default ana_db to execute the creation command
+docker compose exec -T $PG_SERVICE psql -U $PG_USER -d $PG_DEFAULT_DB -c "CREATE DATABASE $DB_NAME;" || true
 
 # 2. Provision RabbitMQ Virtual Host
 echo "[2/2] Creating RabbitMQ vhost: $INSTANCE..."
-# Create the vhost
 docker compose exec -T $RMQ_SERVICE rabbitmqctl add_vhost $INSTANCE || true
-# Grant the guest user full permissions to the new vhost
 docker compose exec -T $RMQ_SERVICE rabbitmqctl set_permissions -p $INSTANCE $RMQ_USER ".*" ".*" ".*"
 
 echo "=========================================="
