@@ -93,3 +93,8 @@ async def get_config(component: str):
     config = {**global_settings, **component_settings}
     logger.info("config_served", payload={"component": component, "config": config})
     return config
+
+@app.get("/inspector")
+async def inspector_endpoint():
+    """Lightweight read-only API for the Inspector."""
+    return {"status": "healthy", "component": "configurator"}
