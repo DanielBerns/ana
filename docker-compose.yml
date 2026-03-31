@@ -6,11 +6,11 @@ services:
     image: rabbitmq:3-management-alpine
     container_name: ana_broker
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
     ports:
-      - "5672:5672"   # AMQP protocol port for FastStream components
-      - "15672:15672" # Management UI (accessible via browser)
+      - "5672:5672"
+      - "15672:15672"
     networks:
       - ana_network
     healthcheck:
@@ -24,26 +24,45 @@ services:
     image: postgres:16-alpine
     container_name: ana_database
     environment:
-      POSTGRES_USER: ana_admin
-      POSTGRES_PASSWORD: ana_password
-      # In a real setup, you'd create separate logical DBs.
-      # For local dev, we can use one and separate by schemas.
-      POSTGRES_DB: ana_db
+      POSTGRES_USER: ${POSTGRES_USER:-ana_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ana_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ana_db}
     ports:
       - "5432:5432"
     volumes:
+      # Explicit data persistence
       - postgres_data:/var/lib/postgresql/data
+      # Removing Explicit initialization script mount
     networks:
       - ana_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ana_admin -d ana_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ana_admin} -d ${POSTGRES_DB:-ana_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # 3. The Store Component
+  store:
+    # (Assuming you build this from a Dockerfile)
+    build:
+      context: .
+      dockerfile: Dockerfile.store
+    container_name: ana_store
+    ports:
+      - "8001:8001"
+    environment:
+      - ANA_INSTANCE=${INSTANCE:-devel}
+    volumes:
+      # Explicit blob storage mount
+      - store_blobs:/app/blobs
+    networks:
+      - ana_network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   postgres_data:
-  # This volume will act as the local disk for the Store component
   store_blobs:
 
 networks:

@@ -2,9 +2,9 @@
 # ANA SYSTEM MAKEFILE
 # ==========================================
 
-.PHONY: sync up down run-interface run-store run-controller run-actor run-memory run-inspector run-configurator
+.PHONY: sync up down run-interface run-store run-controller run-actor run-memory run-inspector run-configurator create-env check-env
 
-# Default instance name if not provided (e.g., make run-controller INSTANCE=prod-1)
+# Default instance name if not provided
 INSTANCE ?= devel
 
 # --- Environment & Dependencies ---
@@ -12,12 +12,36 @@ sync:
 	@echo "Syncing dependencies with uv..."
 	uv sync
 
+# Creates a default .env file if one does not exist
+create-env:
+	@if [ ! -f .env ]; then \
+		echo "Creating default .env file..."; \
+		echo "RABBITMQ_USER=guest" > .env; \
+		echo "RABBITMQ_PASS=guest" >> .env; \
+		echo "POSTGRES_USER=ana_admin" >> .env; \
+		echo "POSTGRES_PASSWORD=ana_password" >> .env; \
+		echo "POSTGRES_DB=ana_db" >> .env; \
+		echo ".env file created successfully."; \
+	else \
+		echo ".env file already exists."; \
+	fi
+
+# Validates that the .env file is present
+check-env:
+	@if [ ! -f .env ]; then \
+		echo "Error: .env file is missing. Please run 'make create-env' first."; \
+		exit 1; \
+	else \
+		echo "Configuration validated: .env file found."; \
+	fi
+
 # --- Infrastructure ---
-provision:
+provision: check-env
 	@echo "Provisioning databases and queues for instance: $(INSTANCE)..."
 	./provision.sh $(INSTANCE)
 
-up:
+# We add check-env as a dependency to 'up' so it validates before starting
+up: check-env
 	@echo "Starting RabbitMQ and PostgreSQL..."
 	docker compose up -d
 

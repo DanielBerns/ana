@@ -1,3 +1,6 @@
+Here is the updated `README.md` reflecting the new environment variable setup for Docker Compose and the Makefile targets. 
+
+```markdown
 # Ana: Autonomous Event-Driven Agent
 
 Ana is an event-driven, microservice-based AI system built with Hexagonal Architecture. It autonomously scrapes web data, processes RSS feeds, archives artifacts, and features a conversational AI loop, all orchestrated through a RabbitMQ event bus and backed by PostgreSQL.
@@ -23,13 +26,20 @@ cd ana
 make sync
 ```
 
-**2. Start the Infrastructure (Docker):**
-This spins up PostgreSQL and RabbitMQ in the background.
+**2. Set up Environment Variables:**
+Before starting the infrastructure, you must generate a `.env` file containing your database and message broker credentials.
+```bash
+make create-env
+```
+*(This creates a default `.env` file in your directory. You can edit this file to change the default passwords if desired).*
+
+**3. Start the Infrastructure (Docker):**
+This spins up PostgreSQL and RabbitMQ in the background, validating that your `.env` file exists before starting.
 ```bash
 make up
 ```
 
-**3. Provision an Instance:**
+**4. Provision an Instance:**
 Before starting the system, you must provision an isolated database and message queue for your specific instance (e.g., `devel`).
 ```bash
 make provision INSTANCE=devel
@@ -118,3 +128,4 @@ If you want to permanently delete all databases, chat history, downloaded files,
 docker compose down -v
 ```
 *(After doing this, you will need to run `make up` and `make provision INSTANCE=devel` again).*
+```
