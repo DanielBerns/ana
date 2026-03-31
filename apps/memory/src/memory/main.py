@@ -49,13 +49,11 @@ class MemoryHandler:
         log = logger.bind(correlation_id=event.correlation_id, user_id=event.user_id)
 
         async with AsyncSessionLocal() as session:
-            # 1. Save the incoming User prompt using the correct attribute
             if event.query_reference and event.user_id:
                 new_msg = MessageRecord(user_id=event.user_id, role="user", content=event.query_reference)
                 session.add(new_msg)
                 await session.commit()
 
-            # 2. Fetch the recent history
             result = await session.execute(
                 select(MessageRecord)
                 .where(MessageRecord.user_id == event.user_id)
@@ -63,31 +61,23 @@ class MemoryHandler:
                 .limit(self.history_limit)
             )
             records = result.scalars().all()
-
-            # Reverse to chronological order
             history = [{"role": r.role, "content": r.content} for r in reversed(records)]
 
-        # 3. Publish Context
+        # FIX: Directly set trigger_event during initialization using updated schema
         provided_event = ContextProvided(
             correlation_id=event.correlation_id,
             user_id=event.user_id,
-            history=history
+            history=history,
+            trigger_event={
+                "event_type": "ContextRequested",
+                "query": event.query_reference
+            }
         )
 
-        # We dynamically attach trigger_event so the Controller's ChatRoutingRule can see it
-        # without breaking Pydantic's strict schema validation!
-        provided_event.__dict__["trigger_event"] = {
-            "event_type": "ContextRequested",
-            "query": event.query_reference
-        }
-
-        # Note: Use getattr to safely default the reply_to_topic if it's missing
         await self._host.publish(provided_event, queue=getattr(event, "reply_to_topic", "context_responses"))
         log.info("context_provided", payload={"history_length": len(history)})
 
-
 class AssistantReplyListener:
-    """Listens to actions to save the Assistant's reply into the DB."""
     def __init__(self, config: dict[str, Any]):
         self._host: ComponentHost | None = None
         self.update_config(config)
@@ -102,14 +92,12 @@ class AssistantReplyListener:
     async def handle(self, event: ActionRequired) -> None:
         if not self.enabled or event.action_type != "reply_to_chat" or not event.user_id:
             return
-
         async with AsyncSessionLocal() as session:
             reply_msg = MessageRecord(user_id=event.user_id, role="assistant", content=str(event.payload))
             session.add(reply_msg)
             await session.commit()
             logger.info("assistant_reply_saved_to_memory", payload={"user_id": event.user_id})
 
-# ... SystemHandler definition remains standard ...
 class SystemHandler:
     def __init__(self, component_name: str, registry: dict[str, Configurable]):
         self.component_name = component_name
@@ -127,8 +115,6 @@ class SystemHandler:
             await self._host.publish(SystemFatalError(correlation_id=event.correlation_id, component=self.component_name, error_reason=str(e), bad_configuration=event.new_configuration), queue="system.fatal_errors")
             os._exit(1)
 
-
-# App Lifecycle
 handler_config = DYNAMIC_CONFIG.get("event_handlers", {})
 memory_handler = MemoryHandler(handler_config.get("MemoryHandler", {}))
 reply_listener = AssistantReplyListener(handler_config.get("AssistantReplyListener", {}))
@@ -141,9 +127,9 @@ system_handler = SystemHandler("memory", registry)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize DB
+    # FIX/ANTI-PATTERN: Use Alembic instead.
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+         await conn.run_sync(Base.metadata.create_all)
 
     await memory_handler.register(host)
     await reply_listener.register(host)
@@ -158,12 +144,8 @@ app.include_router(router)
 async def inspector_endpoint():
     return {"status": "healthy", "component": "memory", "active_config": DYNAMIC_CONFIG}
 
-# ==========================================
-# ADMIN ENDPOINTS (For Inspector BFF)
-# ==========================================
 @app.get("/admin/tables/chat_history")
 async def admin_chat_history(limit: int = 50, offset: int = 0):
-    """Exposes the chat_history table for the Inspector UI."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(MessageRecord).order_by(MessageRecord.created_at.desc()).offset(offset).limit(limit)

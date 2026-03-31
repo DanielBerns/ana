@@ -32,7 +32,6 @@ services:
     volumes:
       # Explicit data persistence
       - postgres_data:/var/lib/postgresql/data
-      # Removing Explicit initialization script mount
     networks:
       - ana_network
     healthcheck:
@@ -41,29 +40,8 @@ services:
       timeout: 5s
       retries: 5
 
-  # 3. The Store Component
-  store:
-    # (Assuming you build this from a Dockerfile)
-    build:
-      context: .
-      dockerfile: Dockerfile.store
-    container_name: ana_store
-    ports:
-      - "8001:8001"
-    environment:
-      - ANA_INSTANCE=${INSTANCE:-devel}
-    volumes:
-      # Explicit blob storage mount
-      - store_blobs:/app/blobs
-    networks:
-      - ana_network
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
 volumes:
   postgres_data:
-  store_blobs:
 
 networks:
   ana_network:

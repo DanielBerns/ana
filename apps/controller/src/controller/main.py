@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from faststream.rabbit.fastapi import RabbitRouter
 
-# Import our strictly typed domain contracts and shared utilities
 from shared.events import (
     BaseEvent, PerceptionGathered, UserPromptReceived, ContextRequested,
     ContextProvided, CommandIssued, ConfigurationUpdated, SystemFatalError
@@ -12,15 +11,10 @@ from shared.events import (
 from shared.config import setup_logger, fetch_dynamic_config
 from shared.protocols import EventHandler, ComponentHost, Configurable
 
-# Import the domain logic
 from .domain.rules import RuleEngine
 
-# --- Logging Setup ---
 logger = setup_logger("controller_component")
 
-# ==========================================
-# DYNAMIC CONFIGURATION STATE (BOOT)
-# ==========================================
 DYNAMIC_CONFIG = fetch_dynamic_config("controller")
 rabbitmq_url = DYNAMIC_CONFIG["global"]["rabbitmq_url"]
 
@@ -38,10 +32,6 @@ class ControllerHost:
 
 host = ControllerHost(router)
 
-
-# ==========================================
-# ADAPTERS (Event Handlers)
-# ==========================================
 class PerceptionHandler:
     def __init__(self, config: dict[str, Any]):
         self._host: ComponentHost | None = None
@@ -66,7 +56,6 @@ class PerceptionHandler:
         await self._host.publish(request_event, queue="context_requests")
         log.info("context_requested")
 
-
 class UserPromptHandler:
     def __init__(self, config: dict[str, Any]):
         self._host: ComponentHost | None = None
@@ -86,13 +75,11 @@ class UserPromptHandler:
         request_event = ContextRequested(
             correlation_id=event.correlation_id,
             user_id=event.user_id,
-            query_reference=event.text,  # <-- Added: Pass the actual message text!
+            query_reference=event.text,
             reply_to_topic="context_responses"
         )
         await self._host.publish(request_event, queue="context_requests")
         log.info("chat_history_requested")
-
-# ... (Host setup) ...
 
 class ContextProvidedHandler:
     def __init__(self, config: dict[str, Any]):
@@ -100,7 +87,6 @@ class ContextProvidedHandler:
         self.rule_engine = RuleEngine(config.get("rules", {}))
 
     def update_config(self, params: dict[str, Any]) -> None:
-        # Pass the config updates down to the RuleEngine and its active rules!
         self.rule_engine.update_config(params.get("rules", {}))
 
     async def register(self, host_component: ComponentHost) -> None:
@@ -108,20 +94,12 @@ class ContextProvidedHandler:
         await self.rule_engine.register(host_component)
         await host_component.subscribe("memory.context_provided", self)
 
-    async def handle(self, event: Any) -> None: # Using Any or the specific ContextProvided type
+    # FIX: Explicit typing of ContextProvided to maintain Pydantic schema contract
+    async def handle(self, event: ContextProvided) -> None:
         log = logger.bind(correlation_id=event.correlation_id)
-
-        # We simply pass the context to the engine.
-        # The rules themselves will decide if they need to publish commands.
         await self.rule_engine.evaluate_all(event)
-
         log.info("context_evaluated_by_active_rules")
 
-# ... (Lifespan and SystemHandler logic remains exactly the same) ...
-
-# ==========================================
-# SYSTEM LIFECYCLE HANDLER
-# ==========================================
 class SystemHandler:
     def __init__(self, component_name: str, registry: dict[str, Configurable]):
         self.component_name = component_name
@@ -151,10 +129,6 @@ class SystemHandler:
             await self._host.publish(fatal_event, queue="system.fatal_errors")
             os._exit(1)
 
-
-# ==========================================
-# INSTANTIATION & APP LIFECYCLE
-# ==========================================
 handler_configs = DYNAMIC_CONFIG.get("event_handlers", {})
 
 perception_handler = PerceptionHandler(handler_configs.get("PerceptionHandler", {}))
@@ -182,14 +156,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan, title="Ana Controller Component")
 app.include_router(router)
 
-
 @app.get("/inspector")
 async def inspector_endpoint():
-    """Lightweight read-only API for the Inspector."""
     return {
         "status": "healthy",
         "component": "controller",
         "active_config": DYNAMIC_CONFIG,
-        # Access the rule engine through the handler instance!
         "active_rules": [type(r).__name__ for r in context_provided_handler.rule_engine.rules]
     }

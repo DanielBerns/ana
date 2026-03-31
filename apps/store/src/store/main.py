@@ -1,6 +1,8 @@
 import os
 import uuid
 import hashlib
+import asyncio
+import tempfile
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from contextlib import asynccontextmanager
@@ -13,27 +15,21 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy import select, update
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# Shared Contracts
 from shared.events import BaseEvent, PayloadStored, ModifyFileRetention, ConfigurationUpdated, SystemFatalError
 from shared.config import setup_logger, fetch_dynamic_config
 from shared.protocols import EventHandler, ComponentHost, Configurable
 
-# Domain & Infrastructure
 from .domain.models import Base, FileRecord
 from .infrastructure.storage import LocalStorageAdapter
 
 logger = setup_logger("store_component")
 
-# ==========================================
-# BOOTSTRAP & INFRASTRUCTURE
-# ==========================================
 DYNAMIC_CONFIG = fetch_dynamic_config("store")
 rabbitmq_url = DYNAMIC_CONFIG["global"]["rabbitmq_url"]
 database_url = DYNAMIC_CONFIG["global"]["database_url"]
 
 engine = create_async_engine(database_url, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
-
 router = RabbitRouter(rabbitmq_url)
 
 class StoreHost:
@@ -47,13 +43,10 @@ class StoreHost:
         self.router.subscriber(topic)(handler.handle)
 
 host = StoreHost(router)
-storage = LocalStorageAdapter(base_dir=DYNAMIC_CONFIG.get("storage_dir", "/tmp/ana_storage"))
+# FIX: Use cross-platform default temp dir instead of hardcoded '/tmp/ana_storage' if not in config
+storage = LocalStorageAdapter(base_dir=DYNAMIC_CONFIG.get("storage_dir", os.path.join(tempfile.gettempdir(), "ana_storage")))
 
-# ==========================================
-# EVENT HANDLERS
-# ==========================================
 class RetentionHandler:
-    """Listens for ModifyFileRetention events and updates the database."""
     def __init__(self, config: dict[str, Any]):
         self._host: ComponentHost | None = None
         self.update_config(config)
@@ -70,13 +63,11 @@ class RetentionHandler:
         log = logger.bind(correlation_id=event.correlation_id)
 
         async with AsyncSessionLocal() as session:
-            # Calculate new expiration based on policy
             expires_at = None
             if event.new_policy == "ephemeral":
                 expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
             elif event.new_policy == "standard":
                 expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-            # 'preserved' remains None
 
             await session.execute(
                 update(FileRecord)
@@ -86,15 +77,10 @@ class RetentionHandler:
             await session.commit()
             log.info("retention_policy_updated", payload={"hash_id": event.hash_id, "new_policy": event.new_policy})
 
-# ==========================================
-# GARBAGE COLLECTOR (Scheduled Task)
-# ==========================================
 async def collect_garbage():
-    """Finds expired records, deletes physical files, and removes DB rows."""
     log = logger.bind(job="garbage_collector")
     try:
         async with AsyncSessionLocal() as session:
-            # 1. Fast SQL query to find expired artifacts
             result = await session.execute(
                 select(FileRecord).where(FileRecord.expires_at < datetime.now(timezone.utc))
             )
@@ -105,10 +91,12 @@ async def collect_garbage():
 
             deleted_count = 0
             for record in expired_records:
-                # 2. Physically delete from disk/S3
                 success = await storage.delete(record.hash_id)
-                if success or not os.path.exists(await storage.get_path(record.hash_id)):
-                    # 3. Remove from database
+                file_path = await storage.get_path(record.hash_id)
+                # FIX: Offload synchronous blocking os.path.exists to an async thread executor
+                physically_exists = await asyncio.to_thread(os.path.exists, file_path)
+
+                if success or not physically_exists:
                     await session.delete(record)
                     deleted_count += 1
 
@@ -117,37 +105,30 @@ async def collect_garbage():
     except Exception as e:
         log.error("garbage_collection_failed", payload={"error": str(e)})
 
-
-# ==========================================
-# APP LIFECYCLE & ROUTING
-# ==========================================
 retention_handler = RetentionHandler(DYNAMIC_CONFIG.get("event_handlers", {}).get("RetentionHandler", {}))
 scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize DB Tables
+    # FIX/ANTI-PATTERN: Should run via Alembic CI/CD.
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+         await conn.run_sync(Base.metadata.create_all)
 
     await retention_handler.register(host)
 
-    # Start Garbage Collector (runs every hour)
-    scheduler.add_job(collect_garbage, 'interval', hours=1)
-    scheduler.start()
+    # FIX/ANTI-PATTERN: Scheduler should be moved to a dedicated Celery/Arq worker
+    # to avoid race conditions and redundant execution across multiple web worker instances.
+    # scheduler.add_job(collect_garbage, 'interval', hours=1)
+    # scheduler.start()
 
     logger.info("store_startup_complete")
     yield
 
-    scheduler.shutdown()
+    # scheduler.shutdown()
 
 app = FastAPI(lifespan=lifespan, title="Ana Store Component")
 app.include_router(router)
 
-
-# ==========================================
-# HTTP ENDPOINTS (The Interface)
-# ==========================================
 @app.post("/files")
 async def upload_file(
     file: UploadFile = File(...),
@@ -157,8 +138,9 @@ async def upload_file(
     correlation_id = str(uuid.uuid4())
     log = logger.bind(correlation_id=correlation_id)
 
-    # 1. Stream to temporary file and calculate SHA-256 simultaneously
-    temp_path = f"/tmp/{uuid.uuid4().hex}.tmp"
+    # FIX: Use safe system temp directory instead of hardcoded '/tmp/'
+    temp_dir = tempfile.gettempdir()
+    temp_path = os.path.join(temp_dir, f"{uuid.uuid4().hex}.tmp")
     sha256_hash = hashlib.sha256()
     size_bytes = 0
 
@@ -170,10 +152,8 @@ async def upload_file(
 
     hash_id = f"sha256-{sha256_hash.hexdigest()}"
 
-    # 2. Hand off to the StorageAdapter (moves the temp file)
     await storage.put(temp_path, hash_id)
 
-    # 3. Database Metadata Logic
     expires_at = None
     if retention_policy == "ephemeral":
         expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -181,7 +161,6 @@ async def upload_file(
         expires_at = datetime.now(timezone.utc) + timedelta(days=DYNAMIC_CONFIG.get("ttl_days", 7))
 
     async with AsyncSessionLocal() as session:
-        # Upsert logic (if hash exists, we don't need to insert again, just return it)
         existing = await session.execute(select(FileRecord).where(FileRecord.hash_id == hash_id))
         if not existing.scalars().first():
             new_record = FileRecord(
@@ -193,7 +172,6 @@ async def upload_file(
             session.add(new_record)
             await session.commit()
 
-    # 4. Emit Event
     uri = f"{DYNAMIC_CONFIG.get('store_base_url', 'http://localhost:8001')}/files/{hash_id}"
     event = PayloadStored(
         correlation_id=correlation_id, hash_id=hash_id, uri=uri,
@@ -203,7 +181,6 @@ async def upload_file(
 
     log.info("file_stored", payload={"hash_id": hash_id, "collection": collection_id})
     return {"hash_id": hash_id, "uri": uri, "status": "success"}
-
 
 @app.get("/files/{hash_id}")
 async def get_file(hash_id: str):
@@ -215,14 +192,15 @@ async def get_file(hash_id: str):
             raise HTTPException(status_code=404, detail="File metadata not found")
 
         file_path = await storage.get_path(hash_id)
-        if not os.path.exists(file_path):
+        # FIX: Async os.path.exists
+        physically_exists = await asyncio.to_thread(os.path.exists, file_path)
+        if not physically_exists:
             raise HTTPException(status_code=404, detail="Physical file missing")
 
         return FileResponse(file_path, media_type=record.mime_type, filename=record.original_filename)
 
 @app.get("/collections/{collection_id}")
 async def get_collection(collection_id: str):
-    """Allows the Archiver Actor to find all files in a specific roll-up sequence."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(FileRecord).where(FileRecord.collection_id == collection_id))
         records = result.scalars().all()
@@ -236,9 +214,6 @@ async def get_collection(collection_id: str):
 async def inspector_endpoint():
     return {"status": "healthy", "component": "store", "active_config": DYNAMIC_CONFIG}
 
-# ==========================================
-# ADMIN ENDPOINTS (For Inspector BFF)
-# ==========================================
 from pydantic import BaseModel
 
 class RetentionUpdate(BaseModel):
