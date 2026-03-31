@@ -54,18 +54,15 @@ class SystemHandler:
                 correlation_id=event.correlation_id, component=self.component_name,
                 error_reason=str(e), bad_configuration=event.new_configuration
             ), queue="system.fatal_errors")
-            sys.exit(1)
+            os._exit(1)  # FIX: Replaced sys.exit(1) with os._exit(1)
 
 # App Lifecycle
-# Fetch the top-level parent dictionaries
 source_config = DYNAMIC_CONFIG.get("event_sources", {})
 handler_config = DYNAMIC_CONFIG.get("event_handlers", {})
 
-# Extract the correct child blocks
 scraping_source = ScrapingEventSource(source_config.get("ScrapingEventSource", {}))
 rss_source = RSSEventSource(source_config.get("RSSEventSource", {}))
 proxy_handler = ProxyActionHandler(handler_config.get("ProxyActionHandler", {}))
-
 
 registry: dict[str, Configurable] = {
     "ScrapingEventSource": scraping_source,

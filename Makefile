@@ -2,7 +2,7 @@
 # ANA SYSTEM MAKEFILE
 # ==========================================
 
-.PHONY: sync up down run-interface run-store run-controller run-actor run-memory run-inspector run-configurator create-env check-env
+.PHONY: sync up down run-interface run-store run-controller run-actor run-memory run-inspector run-configurator create-env check-env provision
 
 # Default instance name if not provided
 INSTANCE ?= devel
@@ -42,8 +42,8 @@ provision: check-env
 
 # We add check-env as a dependency to 'up' so it validates before starting
 up: check-env
-	@echo "Starting RabbitMQ and PostgreSQL..."
-	docker compose up -d
+	@echo "Starting RabbitMQ and PostgreSQL and waiting for them to be healthy..."
+	docker compose up -d --wait
 
 down:
 	@echo "Stopping infrastructure..."
