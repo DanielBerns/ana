@@ -5,9 +5,12 @@ from shared.events import (
     ContextProvided, CommandIssued
 )
 from shared.logger import setup_logger
+import os
+
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+adapter = RabbitMQAdapter(RABBITMQ_URL)
 
 logger = setup_logger("controller")
-adapter = RabbitMQAdapter("amqp://guest:guest@localhost:5672/")
 
 @adapter.subscribe(queue_name="controller.perceptions", routing_key="perceptions")
 async def on_perception(event: PerceptionGathered):

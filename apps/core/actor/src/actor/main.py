@@ -3,8 +3,12 @@ from shared.infrastructure import RabbitMQAdapter
 from shared.events import CommandIssued, ActionRequired, TaskCompleted
 from shared.logger import setup_logger
 
+import os
+
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+adapter = RabbitMQAdapter(RABBITMQ_URL)
+
 logger = setup_logger("actor")
-adapter = RabbitMQAdapter("amqp://guest:guest@localhost:5672/")
 
 @adapter.subscribe(queue_name="actor.commands", routing_key="commands")
 async def on_command(event: CommandIssued):

@@ -6,8 +6,7 @@ from shared.logger import setup_logger
 
 logger = setup_logger("memory")
 
-# We would normally load this from the Configurator or ENV
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 adapter = RabbitMQAdapter(RABBITMQ_URL)
 
 @adapter.subscribe(queue_name="memory.context_requests", routing_key="context_requests")
