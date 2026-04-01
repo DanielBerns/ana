@@ -1,7 +1,3 @@
-Here is the complete, updated specification for Ana. I have bumped the version to v7.1 to reflect the corrections to the event choreography, accurately detailing both the autonomous scraping and the proxy chat flows, as well as fixing the Memory logging steps.
-
----
-
 # "Ana" System Specification (v7.1)
 
 ## 1. System Overview
