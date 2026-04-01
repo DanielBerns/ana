@@ -79,7 +79,7 @@ source = { virtual = "apps/core" }
 [[package]]
 name = "edge"
 version = "0.1.0"
-source = { virtual = "apps/edge" }
+source = { editable = "apps/edge" }
 
 [[package]]
 name = "fast-depends"
