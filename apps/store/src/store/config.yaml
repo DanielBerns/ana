@@ -1,4 +1,0 @@
-# apps/store/src/store/config.yaml
-storage_dir: "/tmp/ana_storage"  # You can change this to a local path in your project if you prefer
-ttl_seconds: 604800              # 7 days
-store_base_url: "http://localhost:8001"

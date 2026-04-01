@@ -1,4 +1,0 @@
-event_handlers:
-  CommandExecutionHandler:
-    enabled: true
-    default_timeout_seconds: 1
