@@ -11,7 +11,7 @@ services:
       - "5672:5672"
       - "15672:15672"
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD-SHELL", "su-exec rabbitmq rabbitmq-diagnostics -q ping"]
       interval: 10s
       timeout: 10s
       retries: 10
@@ -88,6 +88,10 @@ services:
     command: ["uv", "run", "faststream", "run", "memory.main:app"]
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=ana_admin
+      - POSTGRES_PASSWORD=ana_password
+      - POSTGRES_DB=ana_db
     depends_on:
       rabbitmq:
-        condition: service_healthy
+        condition: service_started

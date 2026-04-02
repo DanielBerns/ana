@@ -1,3 +1,4 @@
+import functools
 from faststream.rabbit import RabbitBroker, RabbitQueue, RabbitExchange
 from faststream.rabbit.fastapi import RabbitRouter
 from typing import Callable, Any, Awaitable
@@ -28,19 +29,24 @@ class RabbitMQAdapter:
         Automatically sets the contextvar for logging correlation.
         """
         exchange = RabbitExchange(exchange_name, auto_delete=False)
-        # We explicitly define the queue to ensure it binds to the exchange
         queue = RabbitQueue(name=queue_name, routing_key=routing_key)
 
-        def decorator(handler_func: Callable[[Any], Awaitable[None]]):
-            @self.router.subscriber(queue=queue, exchange=exchange)
-            async def wrapper(event: BaseEvent, *args, **kwargs):
+        def decorator(handler_func: Callable):
+            @functools.wraps(handler_func)
+            async def wrapper(*args, **kwargs):
+                # FastStream passes the parsed Pydantic model via args or kwargs.
+                # We extract it safely to grab the correlation ID.
+                event = args[0] if args else list(kwargs.values())[0]
+
                 # 1. Inject the correlation ID into the execution context
-                token = correlation_id_var.set(event.correlation_id)
+                token = correlation_id_var.set(getattr(event, "correlation_id", "unknown"))
                 try:
                     # 2. Execute the domain/application handler
-                    await handler_func(event, *args, **kwargs)
+                    return await handler_func(*args, **kwargs)
                 finally:
                     # 3. Clean up the context
                     correlation_id_var.reset(token)
-            return wrapper
+
+            # Apply the FastStream subscriber to our perfectly wrapped function
+            return self.router.subscriber(queue=queue, exchange=exchange)(wrapper)
         return decorator
