@@ -1,3 +1,4 @@
+import os
 import asyncio
 from faststream import FastStream
 from shared.infrastructure import RabbitMQAdapter

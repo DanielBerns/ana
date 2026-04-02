@@ -12,8 +12,5 @@ COPY pyproject.toml uv.lock ./
 COPY packages/ packages/
 COPY apps/ apps/
 
-# Sync the entire workspace into the container (production mode)
-RUN uv sync --frozen --no-dev
-
-# We don't set a CMD here because docker-compose will override it
-# depending on which microservice it is spinning up.
+# Sync the ENTIRE workspace into the container (production mode)
+RUN uv sync --frozen --no-dev --all-packages
