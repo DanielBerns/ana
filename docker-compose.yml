@@ -88,6 +88,10 @@ services:
     command: ["uv", "run", "faststream", "run", "memory.main:app"]
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=ana_admin
+      - POSTGRES_PASSWORD=ana_password
+      - POSTGRES_DB=ana_db
     depends_on:
       rabbitmq:
-        condition: service_healthy
+        condition: service_started
