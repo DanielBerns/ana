@@ -33,22 +33,27 @@ class SymbolicRuleEngine:
                 "action_type": "reply_to_chat",
                 "payload": "Greetings, Operator. Ana is awaiting your instruction."
             }]
-
         elif intent == "intent_scrape":
-            # Here we can trigger multiple side effects at once!
             return [
                 {
                     "type": "action",
                     "action_type": "reply_to_chat",
-                    "payload": "Acknowledged. I will dispatch a command to the Edge Scraper API immediately."
+                    "payload": "Acknowledged. I will dispatch a configuration to the Edge ETL Harvester immediately."
                 },
-                # Note: In the future, this would trigger a CommandIssued to actually run the scrape
                 {
                     "type": "command",
-                    "instruction": "execute_edge_scrape"
+                    "instruction": "execute_etl_pipeline",
+                    "context_data": {
+                        "pipeline_config": {
+                            "source": "https://en.wikipedia.org/wiki/Comodoro_Rivadavia",
+                            "extractor": "HttpExtractor",
+                            "transformer": "DOMTransformer",
+                            "loader": "YamlLoader",
+                            "transformer_kwargs": {"target_selector": "p"}
+                        }
+                    }
                 }
             ]
-
         else:
             return [{
                 "type": "action",

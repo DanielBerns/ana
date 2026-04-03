@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Float, ForeignKey, JSON, DateTime
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy import String, Float, ForeignKey, JSON, DateTime, Index, CheckConstraint
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     pass
@@ -11,30 +11,64 @@ class Entity(Base):
     __tablename__ = "entities"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    entity_type: Mapped[str] = mapped_column(String, index=True) # e.g., "person", "url", "concept"
+    entity_type: Mapped[str] = mapped_column(String, index=True)
     name: Mapped[str] = mapped_column(String, index=True)
-    attributes: Mapped[dict] = mapped_column(JSON, default=dict) # Flexible storage for statistical features
+    attributes: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-class Triple(Base):
+class NamedGraph(Base):
     """
-    A directional belief / logical relation (Subject -> Predicate -> Object).
-    This forms the edges of the Knowledge Graph.
+    The 4th Dimension (G): Defines the context, provenance, or temporal boundary of facts.
+    Examples: "session:architect_01" or "source:https://example.com/news"
     """
-    __tablename__ = "triples"
+    __tablename__ = "named_graphs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    description: Mapped[str] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class Quad(Base):
+    """
+    The Multidimensional Belief (Subject -> Predicate -> Object, within Graph).
+    Includes property-graph metadata (confidence, correlation_id) on the edge itself.
+    """
+    __tablename__ = "quads"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
 
-    subject_id: Mapped[str] = mapped_column(ForeignKey("entities.id"), index=True)
-    predicate: Mapped[str] = mapped_column(String, index=True) # e.g., "requested_action", "is_located_in"
-    object_id: Mapped[str] = mapped_column(ForeignKey("entities.id"), index=True)
+    # (S) Subject
+    subject_id: Mapped[str] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), index=True)
 
-    # Neurosymbolic hook: The statistical probability that this belief is true (0.0 to 1.0)
+    # (P) Predicate
+    predicate: Mapped[str] = mapped_column(String, index=True)
+
+    # (O) Object - Dual Approach (IRI vs Literal)
+    object_entity_id: Mapped[str | None] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=True)
+    object_literal_value: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # (G) Graph / Context
+    graph_id: Mapped[str] = mapped_column(ForeignKey("named_graphs.id", ondelete="CASCADE"), index=True)
+
+    # Neurosymbolic Hooks (Statistical confidence & Audit trail)
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
-
-    # Audit trail: Which event caused Ana to formulate this belief?
     source_correlation_id: Mapped[str] = mapped_column(String, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        # Enforce that an Object is EITHER a reference to another Entity OR a literal string, never both/neither.
+        CheckConstraint(
+            "(object_entity_id IS NULL AND object_literal_value IS NOT NULL) OR (object_entity_id IS NOT NULL AND object_literal_value IS NULL)",
+            name="check_exclusive_object"
+        ),
+        # 1. SPOG Index (Optimized for forward graph traversals)
+        Index("idx_quads_spog", "subject_id", "predicate", "object_entity_id", "graph_id"),
+
+        # 2. POGS Index (Optimized for reverse lookups and property queries)
+        Index("idx_quads_pogs", "predicate", "object_entity_id", "graph_id", "subject_id"),
+
+        # 3. GPSO Index (Optimized for isolating facts within a specific Context/Graph)
+        Index("idx_quads_gpso", "graph_id", "predicate", "subject_id", "object_entity_id"),
+    )
 
 class EventLog(Base):
     """Deterministic, append-only ledger of everything that has happened."""
