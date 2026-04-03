@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from shared.infrastructure import RabbitMQAdapter
-from shared.events import UserPromptReceived, PerceptionGathered, ActionRequired
+from shared.events import UserPromptReceived, PerceptionGathered, ActionRequired, CommandIssued
 from shared.logger import setup_logger
 from .infrastructure.clients import EdgeClient
 
@@ -32,6 +32,52 @@ async def on_action_required(event: ActionRequired):
         logger.info("pushing_reply_to_proxy", user_id=event.user_id, reply=event.payload)
         # Domain Logic: HTTP POST to the external Proxy Website goes here
 
+@adapter.subscribe(queue_name="interface.commands", routing_key="commands")
+async def on_command(event: CommandIssued):
+    """Listens for system commands that require interacting with the outside world."""
+
+    if event.instruction == "execute_edge_scrape":
+        # In the future, the Controller will pass the extracted URL in the context_data
+        target_url = "https://example.com/news"
+        logger.info("executing_edge_scrape_command", url=target_url)
+
+        try:
+            # 1. Ask Edge Scraper to get the data synchronously
+            scrape_data = await edge_client.scrape(target_url)
+
+            # 2. Ask Edge Store to save the heavy payload
+            store_data = await edge_client.store_blob(scrape_data["content"])
+            uri = store_data["uri"]
+
+            # 3. Publish lightweight Perception event to the Core Event Broker
+            perception = PerceptionGathered(
+                correlation_id=event.correlation_id,
+                source_url=target_url,
+                uri=uri
+            )
+            await adapter.publish(perception, routing_key="perceptions")
+            logger.info("perception_published_from_command", uri=uri)
+
+            # 4. Tell the user the task is complete
+            action = ActionRequired(
+                correlation_id=event.correlation_id,
+                action_type="reply_to_chat",
+                user_id=event.user_id,
+                payload=f"Scraping completed successfully. Data securely archived at URI: {uri}."
+            )
+            await adapter.publish(action, routing_key="actions")
+
+        except Exception as e:
+            logger.error("edge_scrape_command_failed", error=str(e))
+
+            # Notify the user of the failure
+            error_action = ActionRequired(
+                correlation_id=event.correlation_id,
+                action_type="reply_to_chat",
+                user_id=event.user_id,
+                payload="Failed to execute the scrape command. The Edge API may be unreachable."
+            )
+            await adapter.publish(error_action, routing_key="actions")
 
 # --- Autonomous Scraping Flow (The "Claim Check" Pattern) ---
 async def scheduled_scraping_task():

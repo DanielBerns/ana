@@ -47,11 +47,28 @@ services:
     ports:
       - "8002:8002"
 
+  edge-etl:
+    build:
+      context: .
+      dockerfile: apps/edge/etl/Dockerfile
+    container_name: ana_edge_etl
+    restart: on-failure # <-- ADD THIS LINE
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
+      - STORE_URL=http://edge-store:8002
+    volumes:
+      # Mount a local directory so the FileSystemExtractor can read local files!
+      - ./local_data:/app/local_data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
   # --- TIER 2: THE CORE (Event-Driven) ---
   core-interface:
     build: .
     container_name: ana_core_interface
     command: ["uv", "run", "uvicorn", "interface.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: on-failure # <-- ADD THIS LINE
     ports:
       - "8000:8000"
     environment:
@@ -66,6 +83,7 @@ services:
     build: .
     container_name: ana_core_controller
     command: ["uv", "run", "faststream", "run", "controller.main:app"]
+    restart: on-failure # <-- ADD THIS LINE
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
     depends_on:
@@ -76,6 +94,7 @@ services:
     build: .
     container_name: ana_core_actor
     command: ["uv", "run", "faststream", "run", "actor.main:app"]
+    restart: on-failure # <-- ADD THIS LINE
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
     depends_on:
@@ -86,6 +105,7 @@ services:
     build: .
     container_name: ana_core_memory
     command: ["uv", "run", "faststream", "run", "memory.main:app"]
+    restart: on-failure # <-- ADD THIS LINE
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
       - POSTGRES_HOST=postgres

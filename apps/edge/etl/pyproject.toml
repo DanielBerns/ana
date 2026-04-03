@@ -1,5 +1,5 @@
 [project]
-name = "actor"
+name = "etl"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -7,9 +7,10 @@ requires-python = ">=3.14"
 dependencies = [
     "shared",
     "faststream[rabbit,cli]",
-    "scikit-learn",
-    "numpy",
-    "httpx"
+    "httpx",
+    "selenium",
+    "beautifulsoup4",
+    "pyyaml"
 ]
 
 [build-system]
