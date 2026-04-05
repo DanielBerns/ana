@@ -2,7 +2,7 @@ import os
 from faststream import FastStream
 import httpx
 
-from shared.infrastructure import RabbitMQAdapter
+from shared.infrastructure import RabbitMQAdapter, RABBITMQ_URL_DEFAULT
 from shared.events import CommandIssued, ActionRequired, TaskCompleted
 from shared.logger import setup_logger
 from .domain.classifier import IntentClassifier
@@ -11,7 +11,7 @@ from .domain.extractor import FactExtractor
 
 logger = setup_logger("actor")
 STORE_URL = os.getenv("STORE_URL", "http://edge-store:8002")
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/ana_v2")
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", RABBITMQ_URL_DEFAULT)
 adapter = RabbitMQAdapter(RABBITMQ_URL)
 classifier = IntentClassifier()
 extractor = FactExtractor()

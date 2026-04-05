@@ -1,6 +1,6 @@
 import os
 from faststream import FastStream
-from shared.infrastructure import RabbitMQAdapter
+from shared.infrastructure import RabbitMQAdapter, RABBITMQ_URL_DEFAULT
 from shared.events import (
     ContextRequested, ContextProvided, CommandIssued,
     TaskCompleted, ActionRequired, PerceptionGathered, UserPromptReceived
@@ -10,10 +10,11 @@ from .domain.rules import SymbolicRuleEngine
 
 logger = setup_logger("controller")
 
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/ana_v2")
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", RABBITMQ_URL_DEFAULT)
 adapter = RabbitMQAdapter(RABBITMQ_URL)
 
 rule_engine = SymbolicRuleEngine()
+
 
 @adapter.subscribe(queue_name="controller.context_responses", routing_key="context_responses")
 async def on_context_provided(event: ContextProvided):
@@ -43,18 +44,16 @@ async def on_perception_gathered(event: PerceptionGathered):
 
 @adapter.subscribe(queue_name="controller.task_evaluations", routing_key="task_completed")
 async def on_task_completed(event: TaskCompleted):
-    """Listens for completed tasks from the Actor and applies symbolic reasoning."""
-    if event.task_name == "evaluate_user_intent" and event.status == "success":
-        parts = event.result_summary.split("|")
-        if len(parts) != 2:
-            return
+    """Listens for completed tasks from the Actor and delegates to the domain engine."""
+    try:
+        # 1. Strict Hexagonal Architecture: Push all parsing and domain logic to the Engine
+        decisions = rule_engine.process_task_event(
+            task_name=event.task_name,
+            status=event.status,
+            result_summary=event.result_summary
+        )
 
-        intent = parts[0]
-        confidence = float(parts[1])
-
-        logger.info("applying_symbolic_rules", intent=intent, confidence=confidence)
-        decisions = rule_engine.evaluate_intent(intent, confidence)
-
+        # 2. The adapter simply acts on the domain's decisions
         for decision in decisions:
             if decision["type"] == "action":
                 action = ActionRequired(
@@ -74,20 +73,12 @@ async def on_task_completed(event: TaskCompleted):
                 await adapter.publish(cmd, routing_key="commands")
                 logger.info("command_issued", command=decision["instruction"])
 
-    elif event.task_name == "extract_facts" and event.status == "success":
-        # Parse the extracted facts
-        parts = event.result_summary.split("|")
-        keywords = parts[0].split(":")[1]
-        uri = parts[1].split(":")[1]
-
-        logger.info("evaluating_extracted_facts", uri=uri, keywords=keywords)
-
-        action = ActionRequired(
-            correlation_id=event.correlation_id,
-            action_type="reply_to_chat",
-            payload=f"Analysis complete for {uri}. Key symbolic entities extracted: [{keywords}]"
-        )
-        await adapter.publish(action, routing_key="actions")
+    except ValueError as e:
+        # 3. Prevent the Poison Pill: Catch parsing/domain errors gracefully
+        logger.error("task_evaluation_domain_error", error=str(e), event_id=event.correlation_id)
+    except Exception as e:
+        # Catch unexpected failures so RabbitMQ doesn't infinitely requeue
+        logger.exception("task_evaluation_unexpected_failure", error=str(e), event_id=event.correlation_id)
 
 @adapter.subscribe(queue_name="controller.prompts", routing_key="user_prompts")
 async def on_user_prompt(event: UserPromptReceived):

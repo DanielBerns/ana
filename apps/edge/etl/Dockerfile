@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y firefox-esr wget && \
     chmod +x /usr/local/bin/geckodriver && \
     rm geckodriver-v0.34.0-linux64.tar.gz
 
-COPY pyproject.toml uv.lock ./
+COPY apps/edge/etl/pyproject.toml apps/edge/etl/uv.lock ./
 COPY packages/shared packages/shared
 COPY apps/edge/etl apps/edge/etl
 

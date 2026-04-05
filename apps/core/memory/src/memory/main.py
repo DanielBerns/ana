@@ -1,6 +1,6 @@
 import os
 from faststream import FastStream
-from shared.infrastructure import RabbitMQAdapter
+from shared.infrastructure import RabbitMQAdapter, RABBITMQ_URL_DEFAULT
 from shared.events import ContextRequested, ContextProvided, TaskCompleted, UserPromptReceived, PerceptionGathered
 from shared.logger import setup_logger
 
@@ -9,7 +9,7 @@ from .infrastructure.repository import MemoryRepository
 
 logger = setup_logger("memory")
 
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/ana_v2")
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", RABBITMQ_URL_DEFAULT)
 adapter = RabbitMQAdapter(RABBITMQ_URL)
 
 @adapter.subscribe(queue_name="memory.prompts_log", routing_key="user_prompts")
