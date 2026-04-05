@@ -5,22 +5,22 @@ from selenium.webdriver.firefox.options import Options
 import os
 
 class Extractor(Protocol):
-    async def extract(self, source: str, **kwargs) -> Any: ...
+    async def extract(self, source: str, **kwargs) -> dict[str, Any]: ...
 
 class HttpExtractor:
-    """Fetches static HTML or XML, such as RSS feeds for regional news regarding Comodoro Rivadavia."""
-    async def extract(self, source: str, **kwargs) -> str:
+    """Fetches static HTML or XML, such as RSS feeds."""
+    async def extract(self, source: str, **kwargs) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(source)
             response.raise_for_status()
-            return response.text
+            return {"content": response.text}
 
 class SeleniumExtractor:
     """
     Bootstraps a headless Firefox browser to render JavaScript.
     Essential for scraping dynamic storefronts to generate price reports.
     """
-    async def extract(self, source: str, **kwargs) -> str:
+    async def extract(self, source: str, **kwargs) -> dict[str, Any]:
         options = Options()
         options.add_argument("--headless")
         # In a Docker environment, we connect to a remote geckodriver
@@ -30,7 +30,7 @@ class SeleniumExtractor:
         try:
             driver.get(source)
             # You can easily extend this to accept specific wait conditions via kwargs
-            return driver.page_source
+            return {"content": driver.page_source}
         finally:
             driver.quit()
 
@@ -39,17 +39,23 @@ class FileSystemExtractor:
     Reads raw text from mounted volumes.
     Perfect for ingesting local data like exported WhatsApp chat files.
     """
-    async def extract(self, source: str, **kwargs) -> str:
+    async def parse(self, content: str) -> dict[str, Any]:
+        # dummy parser, returns the input as is
+        return {"content": content}
+
+    async def extract(self, source: str, **kwargs) -> dict[str, Any]:
         # Source is expected to be a local file path
         if not os.path.exists(source):
             raise FileNotFoundError(f"Local resource not found: {source}")
 
         with open(source, 'r', encoding='utf-8') as f:
-            return f.read()
+            content = f.read()
+            # Added 'await' here because parse() is an async function
+            return await self.parse(content)
 
 class ApiExtractor:
     """Handles structured data retrieval using authenticated POST/GET requests."""
-    async def extract(self, source: str, **kwargs) -> dict:
+    async def extract(self, source: str, **kwargs) -> dict[str, Any]:
         headers = kwargs.get("headers", {})
         payload = kwargs.get("payload", None)
         method = kwargs.get("method", "GET").upper()

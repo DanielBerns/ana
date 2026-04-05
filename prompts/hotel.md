@@ -19,22 +19,23 @@ class SymbolicRuleEngine:
             parts = result_summary.split("|")
             if len(parts) != 2:
                 raise ValueError(f"Invalid intent format: {result_summary}")
-
+            
             intent = parts[0]
             try:
                 confidence = float(parts[1])
             except ValueError:
                 raise ValueError(f"Confidence must be numeric, got: {parts[1]}")
-
+                
             return self.evaluate_intent(intent, confidence)
 
         elif task_name == "extract_facts":
             parts = result_summary.split("|")
             if len(parts) != 2:
                 raise ValueError(f"Invalid extract_facts format: {result_summary}")
+            
             try:
-                keywords = parts[0][len('keywords:'):]
-                uri = parts[1][len('uri:'):]
+                keywords = parts[0].split(":")[1]
+                uri = parts[1].split(":")[1]
             except IndexError:
                 raise ValueError(f"Malformed key-value pairs: {result_summary}")
 
@@ -70,7 +71,7 @@ class SymbolicRuleEngine:
                 "action_type": "reply_to_chat",
                 "payload": "Greetings, Operator. Ana is awaiting your instruction."
             }]
-
+            
         elif intent == "intent_scrape":
             return [
                 {
@@ -98,4 +99,4 @@ class SymbolicRuleEngine:
                 "action_type": "reply_to_chat",
                 "payload": f"Symbolic mapping failure. Concept '{intent}' is recognized but has no assigned operational rule."
             }]
-
+            

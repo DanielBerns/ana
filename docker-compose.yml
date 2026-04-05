@@ -52,7 +52,8 @@ services:
       context: .
       dockerfile: apps/edge/etl/Dockerfile
     container_name: ana_edge_etl
-    restart: on-failure # <-- ADD THIS LINE
+    command: ["uv", "run", "faststream", "run", "etl.main:app"]
+    restart: on-failure
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
       - STORE_URL=http://edge-store:8002
@@ -68,7 +69,7 @@ services:
     build: .
     container_name: ana_core_interface
     command: ["uv", "run", "uvicorn", "interface.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    restart: on-failure # <-- ADD THIS LINE
+    restart: on-failure
     ports:
       - "8000:8000"
     environment:

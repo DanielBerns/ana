@@ -4,14 +4,14 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from shared.infrastructure import RabbitMQAdapter
+from shared.infrastructure import RabbitMQAdapter, RABBITMQ_URL_DEFAULT
 from shared.events import UserPromptReceived, PerceptionGathered, ActionRequired, CommandIssued
 from shared.logger import setup_logger
 from .infrastructure.clients import EdgeClient
 
 import os
 
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", RABBITMQ_URL_DEFAULT)
 adapter = RabbitMQAdapter(RABBITMQ_URL)
 
 logger = setup_logger("interface")

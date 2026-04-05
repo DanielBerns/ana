@@ -1,14 +1,14 @@
 import os
 import httpx
 from faststream import FastStream
-from shared.infrastructure import RabbitMQAdapter
+from shared.infrastructure import RabbitMQAdapter, RABBITMQ_URL_DEFAULT
 from shared.events import CommandIssued, PerceptionGathered, ActionRequired, TaskCompleted
 from shared.logger import setup_logger
 from .domain.pipeline import ETLPipeline
 
 logger = setup_logger("edge_etl")
 
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/ana_v2")
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", RABBITMQ_URL_DEFAULT)
 STORE_URL = os.getenv("STORE_URL", "http://edge-store:8002")
 adapter = RabbitMQAdapter(RABBITMQ_URL)
 
