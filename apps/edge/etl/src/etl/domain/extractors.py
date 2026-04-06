@@ -10,7 +10,10 @@ class Extractor(Protocol):
 class HttpExtractor:
     """Fetches static HTML or XML, such as RSS feeds."""
     async def extract(self, source: str, **kwargs) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        # Default to True for security, but allow the caller to bypass it
+        verify_ssl = kwargs.get("verify", True)
+
+        async with httpx.AsyncClient(timeout=10.0, verify=verify_ssl) as client:
             response = await client.get(source)
             response.raise_for_status()
             return {"content": response.text}

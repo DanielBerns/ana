@@ -10,7 +10,8 @@ dependencies = [
     "httpx",
     "selenium",
     "beautifulsoup4",
-    "pyyaml"
+    "pyyaml",
+    "certifi",
 ]
 
 [build-system]
