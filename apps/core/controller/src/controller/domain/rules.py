@@ -7,7 +7,7 @@ class SymbolicRuleEngine:
     It maps statistical facts (intents) to symbolic system actions.
     """
 
-    def process_task_event(self, task_name: str, status: str, result_summary: str) -> List[Dict[str, Any]]:
+    def process_task_event(self, task_name: str, status: str, result_summary: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Parses the raw task results and routes them to specific symbolic evaluations.
         Raises ValueError if the string format is invalid, which the adapter will catch safely.
@@ -16,27 +16,18 @@ class SymbolicRuleEngine:
             return [] # In a full system, you might dispatch an error-handling action here
 
         if task_name == "evaluate_user_intent":
-            parts = result_summary.split("|")
-            if len(parts) != 2:
-                raise ValueError(f"Invalid intent format: {result_summary}")
-
-            intent = parts[0]
+            intent = result_summary.get("intent", "unknown")
+            confidence_str = result_summary.get("confidence", "0.0")
             try:
-                confidence = float(parts[1])
+                confidence = float(confidence_str)
             except ValueError:
-                raise ValueError(f"Confidence must be numeric, got: {parts[1]}")
+                raise ValueError(f"Confidence must be numeric, got: {confidence_str}")
 
             return self.evaluate_intent(intent, confidence)
 
         elif task_name == "extract_facts":
-            parts = result_summary.split("|")
-            if len(parts) != 2:
-                raise ValueError(f"Invalid extract_facts format: {result_summary}")
-            try:
-                keywords = parts[0][len('keywords:'):]
-                uri = parts[1][len('uri:'):]
-            except IndexError:
-                raise ValueError(f"Malformed key-value pairs: {result_summary}")
+            keywords = result_summary.get("keywords", [])
+            uri = result_summary.get("uri", "")
 
             return [{
                 "type": "action",

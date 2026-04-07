@@ -33,7 +33,7 @@ async def test_on_task_completed_issues_action(mock_dependencies):
     event = TaskCompleted(
         task_name="extract_facts",
         status="success",
-        result_summary="valid_summary_format"
+        result_summary={"keywords": ["ok", "extraction"], "uri": "https://www.example.org"}
     )
 
     # Act
@@ -43,7 +43,7 @@ async def test_on_task_completed_issues_action(mock_dependencies):
     mock_engine.process_task_event.assert_called_once_with(
         task_name="extract_facts",
         status="success",
-        result_summary="valid_summary_format"
+        result_summary={"keywords": ["ok", "extraction"], "uri": "https://www.example.org"}
     )
 
     # Assert: Verify the adapter published the correct Pydantic event
@@ -63,7 +63,7 @@ async def test_on_task_completed_issues_command(mock_dependencies):
         {"type": "command", "instruction": "update_graph", "context_data": {"node": "A"}}
     ]
 
-    event = TaskCompleted(task_name="evaluate_user_intent", status="success", result_summary="intent|0.99")
+    event = TaskCompleted(task_name="evaluate_user_intent", status="success", result_summary={"intent": "greetings", confidence: 0.99})
 
     # Act
     await on_task_completed(event)
@@ -82,7 +82,7 @@ async def test_on_task_completed_prevents_poison_pill(mock_dependencies):
     # Arrange: Simulate the domain engine throwing a ValueError due to bad string formatting
     mock_engine.process_task_event.side_effect = ValueError("Malformed result_summary")
 
-    event = TaskCompleted(task_name="evaluate_user_intent", status="success", result_summary="bad_data_no_separator")
+    event = TaskCompleted(task_name="evaluate_user_intent", status="success", result_summary={"goal": "greetings", confidence: 0.99})
 
     # Act: This should NOT raise an exception (which would crash the consumer)
     await on_task_completed(event)

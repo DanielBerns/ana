@@ -37,7 +37,7 @@ async def on_command(event: CommandIssued):
             correlation_id=event.correlation_id,
             task_name="evaluate_user_intent",
             status="success",
-            result_summary=f"{predicted_intent}|{confidence}"
+            result_summary={"intent": predicted_intent, "confidence": confidence}
         )
         await adapter.publish(task_log, routing_key="task_completed")
     elif event.instruction == "extract_facts_from_perception":
@@ -57,12 +57,11 @@ async def on_command(event: CommandIssued):
             logger.info("facts_extracted", keywords=keywords)
 
             # 3. Publish the extracted facts back to the Controller
-            summary = f"extracted_keywords:{','.join(keywords)}|uri:{uri}"
             task_log = TaskCompleted(
                 correlation_id=event.correlation_id,
                 task_name="extract_facts",
                 status="success",
-                result_summary=summary
+                result_summary={"keywords": keywords, "uri": uri}
             )
             await adapter.publish(task_log, routing_key="task_completed")
 
