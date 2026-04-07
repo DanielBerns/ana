@@ -9,12 +9,17 @@ RUN apt-get update && apt-get install -y firefox-esr wget && \
     chmod +x /usr/local/bin/geckodriver && \
     rm geckodriver-v0.34.0-linux64.tar.gz
 
-COPY apps/edge/etl/pyproject.toml apps/edge/etl/uv.lock ./
+# Copy the entire workspace (monorepo) structure
+COPY pyproject.toml uv.lock README.md ./
 COPY packages/shared packages/shared
-COPY apps/edge/etl apps/edge/etl
+# COPY apps/edge/etl apps/edge/etl
+COPY apps apps
 
-RUN uv sync --frozen --no-cache
-ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app/apps/edge/etl/src:/app/packages/shared/src"
+# Sync the entire workspace with frozen lockfile
+RUN uv sync --frozen --no-cache --all-packages
 
-CMD ["uv", "run", "faststream", "run", "etl.main:app"]
+# ENV PATH="/app/.venv/bin:$PATH"
+# ENV PYTHONPATH="/app/apps/edge/etl/src:/app/packages/shared/src"
+
+# Run with proper module path - use the package name 'etl'
+CMD ["uv", "run", "--package", "etl", "faststream", "run", "etl.main:app"]

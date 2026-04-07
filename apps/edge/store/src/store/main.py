@@ -9,6 +9,11 @@ class StoreResponse(BaseModel):
     size_bytes: int
     hash_id: str
 
+# Add this above your endpoints in edge.store/main.py
+class DocumentPayload(BaseModel):
+    content: str  # The serialized YAML/CSV or raw JSON string
+
+
 @app.post("/api/v1/blobs", response_model=StoreResponse)
 async def upload_blob(file: UploadFile = File(...)):
     """
@@ -29,6 +34,27 @@ async def upload_blob(file: UploadFile = File(...)):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to store blob")
+
+@app.post("/api/v1/documents", response_model=StoreResponse)
+async def upload_document(payload: DocumentPayload):
+    """
+    Accepts structured text/data payloads (JSON, YAML, CSV).
+    """
+    try:
+        # Encode the string content to bytes for hashing and storage
+        content_bytes = payload.content.encode('utf-8')
+        file_hash = hashlib.sha256(content_bytes).hexdigest()
+
+        # NOTE: Outbound Hexagonal Adapter for Document DB / S3 goes here.
+        uri = f"store://documents/{file_hash}"
+
+        return StoreResponse(
+            uri=uri,
+            size_bytes=len(content_bytes),
+            hash_id=file_hash
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to store document")
 
 @app.get("/health")
 async def health_check():

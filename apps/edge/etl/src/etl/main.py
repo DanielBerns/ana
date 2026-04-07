@@ -12,13 +12,10 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL", RABBITMQ_URL_DEFAULT)
 STORE_URL = os.getenv("STORE_URL", "http://edge-store:8002")
 adapter = RabbitMQAdapter(RABBITMQ_URL)
 
-# Initialize the dynamic pipeline factory
 pipeline = ETLPipeline()
 
 @adapter.subscribe(queue_name="etl.commands", routing_key="commands")
 async def on_command(event: CommandIssued):
-    """Listens for commands to execute highly configurable data harvesting pipelines."""
-
     if event.instruction == "execute_etl_pipeline":
         config = event.context_data.get("pipeline_config", {})
         source_url = config.get("source", "unknown")
@@ -28,13 +25,16 @@ async def on_command(event: CommandIssued):
             # 1. Run the dynamic ETL Pipeline
             formatted_data = await pipeline.execute(config)
 
-            # 2. Upload the formatted artifact (YAML/CSV) to the Edge Store
+            # 2. Upload to Edge Store (Using the new Document endpoint)
             async with httpx.AsyncClient() as client:
-                resp = await client.post(f"{STORE_URL}/blobs", json={"content": formatted_data})
+                resp = await client.post(
+                    f"{STORE_URL}/api/v1/documents",
+                    json={"content": formatted_data}
+                )
                 resp.raise_for_status()
                 uri = resp.json()["uri"]
 
-            # 3. Publish the Perception back to the Core (Memory will archive this!)
+            # 3. Publish Perception
             perception = PerceptionGathered(
                 correlation_id=event.correlation_id,
                 source_url=source_url,
@@ -43,19 +43,28 @@ async def on_command(event: CommandIssued):
             await adapter.publish(perception, routing_key="perceptions")
             logger.info("etl_pipeline_success", uri=uri)
 
-            # 4. Notify completion
+            # 4. Notify completion (Passing structured context, not a string)
             task = TaskCompleted(
                 correlation_id=event.correlation_id,
                 task_name="execute_etl",
                 status="success",
-                result_summary=f"Harvested {source_url} to {uri}"
+                result_summary={"source_url": source_url, "artifact_uri": uri} # Structure the summary
             )
             await adapter.publish(task, routing_key="task_completed")
 
         except Exception as e:
             logger.error("etl_pipeline_failed", error=str(e))
 
-            # If the pipeline breaks, we inform the operator
+            # FIX: Ensure Memory logs the failed task execution
+            task_failed = TaskCompleted(
+                correlation_id=event.correlation_id,
+                task_name="execute_etl",
+                status="failure",
+                result_summary={"source_url": source_url, "error": str(e)}
+            )
+            await adapter.publish(task_failed, routing_key="task_completed")
+
+            # FIX: Request operator intervention
             action = ActionRequired(
                 correlation_id=event.correlation_id,
                 action_type="reply_to_chat",

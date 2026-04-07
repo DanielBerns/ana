@@ -52,7 +52,6 @@ services:
       context: .
       dockerfile: apps/edge/etl/Dockerfile
     container_name: ana_edge_etl
-    command: ["uv", "run", "faststream", "run", "etl.main:app"]
     restart: on-failure
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
@@ -84,7 +83,7 @@ services:
     build: .
     container_name: ana_core_controller
     command: ["uv", "run", "faststream", "run", "controller.main:app"]
-    restart: on-failure # <-- ADD THIS LINE
+    restart: on-failure
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
     depends_on:
@@ -95,7 +94,7 @@ services:
     build: .
     container_name: ana_core_actor
     command: ["uv", "run", "faststream", "run", "actor.main:app"]
-    restart: on-failure # <-- ADD THIS LINE
+    restart: on-failure
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
     depends_on:
@@ -106,7 +105,7 @@ services:
     build: .
     container_name: ana_core_memory
     command: ["uv", "run", "faststream", "run", "memory.main:app"]
-    restart: on-failure # <-- ADD THIS LINE
+    restart: on-failure
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ana_v2
       - POSTGRES_HOST=postgres

@@ -48,4 +48,4 @@ class TaskCompleted(BaseEvent):
     event_type: Literal["TaskCompleted"] = "TaskCompleted"
     task_name: str
     status: Literal["success", "failure"]
-    result_summary: str
+    result_summary: Dict[str, Any]

@@ -2,7 +2,7 @@ from faststream.rabbit import RabbitBroker, RabbitQueue, RabbitExchange
 from faststream.rabbit.fastapi import RabbitRouter
 from .events import BaseEvent
 
-RABBITMQ_URL_DEFAULT = "amqp://guest:guest@127.0.0.1:5672/"
+RABBITMQ_URL_DEFAULT = "amqp://guest:guest@127.0.0.1:5672/ana_v2"
 
 class RabbitMQAdapter:
     """
