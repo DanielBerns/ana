@@ -83,7 +83,7 @@ class SymbolicRuleEngine:
                     "instruction": "execute_etl_pipeline",
                     "context_data": {
                         "pipeline_config": {
-                            "source": "https://en.wikipedia.org/wiki/Comodoro_Rivadavia",
+                            "source": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/403",
                             "extractor": "HttpExtractor",
                             "transformer": "DOMTransformer",
                             "loader": "YamlLoader",

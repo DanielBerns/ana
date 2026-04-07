@@ -1,11 +1,15 @@
 import os
+from alembic.config import Config
+from alembic import command
 from faststream import FastStream
 from shared.infrastructure import RabbitMQAdapter, RABBITMQ_URL_DEFAULT
 from shared.events import ContextRequested, ContextProvided, TaskCompleted, UserPromptReceived, PerceptionGathered
 from shared.logger import setup_logger
 
-from .infrastructure.database import AsyncSessionLocal
+
+from .infrastructure.database import AsyncSessionLocal, engine
 from .infrastructure.repository import MemoryRepository
+
 
 logger = setup_logger("memory")
 
@@ -55,10 +59,14 @@ async def handle_context_request(event: ContextRequested):
 
     async with AsyncSessionLocal() as session:
         repo = MemoryRepository(session)
-        recent_logs = await repo.get_recent_history()
+        recent_logs = await repo.get_recent_history(limit=20) # Pull more to account for filtered out system logs
 
-    # Format the DB logs into a standard history payload
-    history = [{"role": "user" if "user_id" in log else "system", "content": log.get("text", str(log))} for log in recent_logs]
+    history = []
+    for log in recent_logs:
+        # Only append logs that actually represent conversational text
+        if "text" in log:
+            role = "user" if "user_id" in log else "system"
+            history.append({"role": role, "content": log["text"]})
 
     if not history:
         history = [{"role": "system", "content": "No prior context available."}]
@@ -66,7 +74,7 @@ async def handle_context_request(event: ContextRequested):
     response_event = ContextProvided(
         correlation_id=event.correlation_id,
         user_id=event.user_id,
-        history=history,
+        history=history[-5:], # Return only the 5 most recent *conversational* turns
         trigger_event={"query": event.query_reference}
     )
 
@@ -122,4 +130,26 @@ async def handle_perception_gathered(event: PerceptionGathered):
 
     logger.info("archived_perception_as_quad", artifact=event.uri, source=event.source_url, graph=graph_id)
 
+
 app = FastStream(adapter.broker)
+
+@app.on_startup
+async def run_migrations():
+    """Runs Alembic migrations inside the container before consuming events."""
+    logger.info("running_database_migrations")
+
+    # Point Alembic to your config file
+    alembic_cfg = Config("./apps/core/memory/alembic.ini")
+
+    # Run the migration synchronously in a thread to avoid blocking the event loop
+    import asyncio
+    await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+
+    logger.info("database_migrations_complete")
+
+
+@app.on_shutdown
+async def shutdown_database():
+    """Cleanly closes PostgreSQL connection pools."""
+    logger.info("closing_database_connections")
+    await engine.dispose()

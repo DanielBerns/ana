@@ -30,7 +30,7 @@ async def on_command(event: CommandIssued):
 
             # 2. Upload the formatted artifact (YAML/CSV) to the Edge Store
             async with httpx.AsyncClient() as client:
-                resp = await client.post(f"{STORE_URL}/blobs", json={"content": formatted_data})
+                resp = await client.post(f"{STORE_URL}/api/v1/blobs", json={"content": formatted_data})
                 resp.raise_for_status()
                 uri = resp.json()["uri"]
 

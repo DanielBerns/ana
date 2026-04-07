@@ -51,3 +51,9 @@ I want to debug the `HttpExtractor` class from the ground up.
 We will review the files **one by one**. Do not ask for the entire codebase at once. Do not make assumptions about the code I haven't shown you yet.
 
 To begin, please reply with "Acknowledged," state your strategy for this debugging session, and ask me to provide the first set of files.
+
+
+
+
+
+apps/core/memory/alembic.ini
