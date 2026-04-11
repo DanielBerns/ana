@@ -1,8 +1,8 @@
-# src/ports/interfaces.py
+# ana/ports/interfaces.py
 from typing import Any, Protocol
 
-from src.domain.messages import BaseCommand, BaseEvent
-from src.domain.tuples import Tuple4
+from ana.domain.messages import BaseCommand, BaseEvent
+from ana.domain.tuples import Tuple4
 
 
 class MessageBusPort(Protocol):
