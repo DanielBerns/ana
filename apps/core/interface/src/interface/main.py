@@ -119,7 +119,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Graceful shutdown (Replaces the brutal os._exit(1) from v1.0)
+    # Graceful shutdown
     scheduler.shutdown()
     await adapter.broker.disconnect()
 
