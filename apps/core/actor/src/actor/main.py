@@ -1,71 +1,72 @@
 import os
 from faststream import FastStream
-import httpx
 
 from shared.infrastructure import RabbitMQAdapter, RABBITMQ_URL_DEFAULT
-from shared.events import CommandIssued, ActionRequired, TaskCompleted
+from shared.events import CommandIssued, TaskCompleted
 from shared.logger import setup_logger
-from .domain.classifier import IntentClassifier
 
+from .domain.classifier import IntentClassifier
 from .domain.extractor import FactExtractor
+
+# Import our new application/infrastructure components
+from .application.handlers import (
+    CommandHandlerRegistry,
+    EvaluateIntentHandler,
+    ExtractFactsHandler
+)
 
 logger = setup_logger("actor")
 STORE_URL = os.getenv("STORE_URL", "http://edge-store:8002")
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", RABBITMQ_URL_DEFAULT)
+
 adapter = RabbitMQAdapter(RABBITMQ_URL)
+
+# Instantiate domain services
 classifier = IntentClassifier()
 extractor = FactExtractor()
 
+# Initialize and map the Registry
+command_registry = CommandHandlerRegistry()
+command_registry.register("evaluate_user_intent", EvaluateIntentHandler(classifier))
+command_registry.register("extract_facts_from_perception", ExtractFactsHandler(extractor, STORE_URL))
+
+
 @adapter.subscribe(queue_name="actor.commands", routing_key="commands")
 async def on_command(event: CommandIssued):
-    logger.info("executing_command", instruction=event.instruction)
+    logger.info("received_command", instruction=event.instruction)
 
-    if event.instruction == "evaluate_user_intent":
-        # 1. Extract the raw text
-        raw_text = event.context_data.get("raw_text", "")
+    try:
+        # 1. Delegate entirely to the registry. No if/elif blocks.
+        task_log: TaskCompleted = await command_registry.handle(event)
 
-        # 2. Perform statistical classification
-        result = classifier.classify(raw_text)
-        predicted_intent = result["intent"]
-        confidence = result["confidence"]
-
-        logger.info("text_classified", raw_text=raw_text, intent=predicted_intent, confidence=confidence)
-
-        # 3. Archive the perception as a structured fact (No direct replying!)
-        # We pass the exact statistical data in the result_summary so the Controller can read it.
-        task_log = TaskCompleted(
-            correlation_id=event.correlation_id,
-            task_name="evaluate_user_intent",
-            status="success",
-            result_summary={"intent": predicted_intent, "confidence": confidence}
-        )
+        # 2. Publish the successful result back to the Controller
         await adapter.publish(task_log, routing_key="task_completed")
-    elif event.instruction == "extract_facts_from_perception":
-        uri = event.context_data.get("uri")
-        logger.info("fetching_blob_for_extraction", uri=uri)
+        logger.info("command_executed_successfully", instruction=event.instruction)
 
-        try:
-            # 1. Fetch the physical data artifact from the Edge Store
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{STORE_URL}/blobs/{uri}")
-                html_content = resp.json().get("content", "")
+    except ValueError as e:
+        # Instruction wasn't found in the registry
+        logger.error("unsupported_command", error=str(e), correlation_id=event.correlation_id)
 
-            # 2. Process the text and extract symbolic facts
-            clean_text = extractor.clean_html(html_content)
-            keywords = extractor.extract_keywords(clean_text)
+        # Publish a failure event so the Controller isn't left hanging
+        failure_log = TaskCompleted(
+            correlation_id=event.correlation_id,
+            task_name=event.instruction,
+            status="failure",
+            result_summary={"error": str(e)}
+        )
+        await adapter.publish(failure_log, routing_key="task_completed")
 
-            logger.info("facts_extracted", keywords=keywords)
+    except Exception as e:
+        # Catch unexpected handler failures (e.g., HTTP errors in ExtractFacts)
+        logger.exception("command_execution_failed", error=str(e), correlation_id=event.correlation_id)
 
-            # 3. Publish the extracted facts back to the Controller
-            task_log = TaskCompleted(
-                correlation_id=event.correlation_id,
-                task_name="extract_facts",
-                status="success",
-                result_summary={"keywords": keywords, "uri": uri}
-            )
-            await adapter.publish(task_log, routing_key="task_completed")
+        failure_log = TaskCompleted(
+            correlation_id=event.correlation_id,
+            task_name=event.instruction,
+            status="failure",
+            result_summary={"error": "Internal handler failure"}
+        )
+        await adapter.publish(failure_log, routing_key="task_completed")
 
-        except Exception as e:
-            logger.error("fact_extraction_failed", error=str(e))
 
 app = FastStream(adapter.broker)
