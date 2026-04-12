@@ -1,0 +1,29 @@
+# dbschema/default.esdl
+module default {
+
+  # Abstract type to enforce common properties
+  abstract type BaseTuple {
+    required property created_at -> datetime {
+      default := datetime_current();
+    }
+  }
+
+  type SPOCTuple extending BaseTuple {
+    required property subject -> str;
+    required property predicate -> str;
+    required property object_ -> str;
+    required property context -> str;
+
+    # Ensures idempotent writes by making the combination unique
+    constraint exclusive on ((.subject, .predicate, .object_, .context));
+  }
+
+  type EAVTTuple extending BaseTuple {
+    required property entity -> str;
+    required property attribute -> str;
+    required property value -> str; # Assuming serialized string for simplicity
+    required property timestamp -> datetime;
+
+    constraint exclusive on ((.entity, .attribute, .timestamp));
+  }
+}

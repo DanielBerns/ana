@@ -1,37 +1,61 @@
-.PHONY: help up down build clean rebuild init test logs
+.PHONY: install format lint test run db-init init reset backup config-generate rabbit-up rabbit-down rabbit-logs
 
-# Default target when you just type 'make'
-help:
-	@echo "Ana System Management Commands:"
-	@echo "  make up       - Start the cluster in the background"
-	@echo "  make down     - Stop and remove the containers"
-	@echo "  make build    - Rebuild the Docker images"
-	@echo "  make clean    - Stop containers AND wipe all data (volumes)"
-	@echo "  make rebuild  - Wipe everything and build the cluster from scratch"
-	@echo "  make init     - Rebuild from scratch (migrations run automatically on container startup)"
-	@echo "  make test     - Run the end-to-end test script"
-	@echo "  make logs     - Tail the logs for all services"
+# ==========================================
+# DEVELOPMENT & RUNTIME
+# ==========================================
 
-up:
-	docker compose up -d
+install:
+	uv sync
 
-down:
-	docker compose down
+format:
+	uv run ruff format .
+	uv run ruff check --fix .
 
-build:
-	docker compose build
-
-clean:
-	docker compose down -v
-
-rebuild: clean
-	docker compose up --build --force-recreate -d
-
-init: rebuild
-	@echo "System initialized! Containers are booting and running their own migrations."
+lint:
+	uv run ruff check .
 
 test:
-	uv run python test_e2e.py "Scrape the news."
+	uv run pytest tests/ -v
 
-logs:
-	docker compose logs -f
+run:
+	@echo "Starting Ana..."
+	uv run scripts/run.py
+
+# ==========================================
+# OFFLINE CLI ADMINISTRATION
+# ==========================================
+
+db-init:
+	@echo "Applying EdgeDB migrations..."
+	# edgedb migrate
+
+init:
+	uv run scripts/cli.py init
+
+reset:
+	uv run scripts/cli.py reset
+
+backup:
+	uv run scripts/cli.py backup
+
+config-generate:
+	uv run scripts/cli.py config generate
+
+config-update:
+	uv run scripts/cli.py config update
+
+# ==========================================
+# Rabbit up, down, and logs
+# ==========================================
+
+rabbit-up:
+	@echo "Starting RabbitMQ via Podman..."
+	podman run -d --rm --name ana-rabbitmq -p 5672:5672 -p 15672:15672 docker.io/library/rabbitmq:3-management
+	@echo "RabbitMQ is running. Management UI available at http://localhost:15672 (guest/guest)"
+
+rabbit-down:
+	@echo "Stopping RabbitMQ..."
+	podman stop ana-rabbitmq
+
+rabbit-logs:
+	podman logs -f ana-rabbitmq
