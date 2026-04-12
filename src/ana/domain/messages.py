@@ -56,3 +56,9 @@ class IONodeFailureEvent(BaseEvent):
     event_type: Literal["ionode_failure"] = "ionode_failure"
     node_id: str
     error_reason: str
+
+
+class ReportCreatedEvent(BaseEvent):
+    event_type: Literal["report_created"] = "report_created"
+    report_uri: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
