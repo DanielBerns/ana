@@ -1,4 +1,4 @@
-.PHONY: install format lint test run db-init init reset backup config-generate rabbit-up rabbit-down rabbit-logs
+.PHONY: install format lint test run init reset backup config-generate rabbit-up rabbit-down rabbit-logs
 
 # ==========================================
 # DEVELOPMENT & RUNTIME
@@ -24,10 +24,6 @@ run:
 # ==========================================
 # OFFLINE CLI ADMINISTRATION
 # ==========================================
-
-db-init:
-	@echo "Applying EdgeDB migrations..."
-	# edgedb migrate
 
 init:
 	uv run scripts/cli.py init
