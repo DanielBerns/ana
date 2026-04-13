@@ -9,6 +9,7 @@ dependencies = [
     "apscheduler>=3.11.2",
     "faststream[rabbit]>=0.6.7",
     "gel>=3.1.0",
+    "httpx>=0.28.1",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
     "pyyaml>=6.0.3",

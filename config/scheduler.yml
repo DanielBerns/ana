@@ -1,4 +1,4 @@
-# Ana Rocketry Schedule Configuration
+# Ana Schedule Configuration
 tasks:
   - name: fetch_daily_data
     cron: '0 0 * * *'
