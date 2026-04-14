@@ -30,10 +30,14 @@ class BaseEvent(BaseModel):
 
 # --- Specific Commands ---
 
+class Action(BaseModel):
+    name: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
 class ExecuteIONodeCommand(BaseCommand):
     command_type: Literal["execute_ionode"] = "execute_ionode"
     target_node_id: str
-    parameters: dict[str, Any] = Field(default_factory=dict)
+    parameters: List[Action] = Field(default_factory=list)
 
 
 # --- Specific Events ---

@@ -10,8 +10,8 @@ from ana.ports.interfaces import MessageBusPort
 # Initialize the asyncio-compatible scheduler
 scheduler_app = AsyncIOScheduler()
 
-def load_tasks_from_config(bus: MessageBusPort, config_path: str = "config/scheduler.yml"):
-    """Dynamically creates APScheduler tasks based on the YAML configuration."""
+def load_actions_from_config(bus: MessageBusPort, config_path: str = "config/scheduler.yml"):
+    """Dynamically creates APScheduler actions based on the YAML configuration."""
     path = Path(config_path)
     if not path.exists():
         return
@@ -19,26 +19,28 @@ def load_tasks_from_config(bus: MessageBusPort, config_path: str = "config/sched
     with open(path, "r") as f:
         config = yaml.safe_load(f)
 
-    for task_def in config.get("tasks", []):
-        task_name = task_def["name"]
-        cron_expr = task_def["cron"]
-
-        # Define the async task
-        async def dynamic_publish_task(name=task_name):
-            command = ExecuteIONodeCommand(
+    for action_def in config.get("actions", []):
+        action_name = action_def.get("name", "error")
+        action_cron_expression = action_def.get("cron", '0 0 * * *')
+        action_target_node_name: action_def.get("target_node_name", "ErrorHandler")
+        action_parameters = action_def.get("parameters", {})
+        # Define the async action
+        async def dynamic_publish_action(name=action_name):
+            action_command = ExecuteIONodeCommand(
                 header=MessageHeader(
-                    correlation_id=f"time_{name}",
+                    correlation_id=f"time_{action_name}",
                     source_component="TimeNode"
                 ),
-                target_node_id="inbound_api_fetcher",
-                parameters={"task_name": name}
+                name=action_name,
+                target_node_id=action_target_node_id,
+                parameters=action_parameters
             )
-            await bus.publish_command(routing_key="command.ionode.inbound.fetch", command=command)
+            await bus.publish_command(routing_key="command.ionode.inbound.fetch", command=action_command)
 
         # Add the job to the scheduler using standard crontab parsing
         scheduler_app.add_job(
-            dynamic_publish_task,
-            CronTrigger.from_crontab(cron_expr),
-            id=task_name,
+            dynamic_publish_action,
+            CronTrigger.from_crontab(action_cron_expression),
+            id=action_name,
             replace_existing=True
         )

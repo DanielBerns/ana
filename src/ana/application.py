@@ -19,9 +19,16 @@ broker = RabbitBroker("amqp://localhost:5672/")
 message_bus = FastStreamMessageBus(broker)
 local_repository = LocalResourceRepository()
 # Initialize and populate the registry
-action_registry = GatewayRegistry()
-action_registry.register("http_get_json", fetch_json_api)
-action_registry.register("http_post_proxy", post_to_proxy)
+
+proxy_client = ProxyAPIClient(base_url="...", username="...", password="...")
+
+# These perfectly match ActionCallable [[dict[str, Any]], Awaitable[tuple[bytes, str]]]
+
+gateway_registry = GatewayRegistry()
+gateway_registry.register("proxy_fetch_tasks", proxy_client.fetch_pending_tasks_action)
+gateway_registry.register("proxy_upload_report", proxy_client.upload_report_stream_action)
+gateway_registry.register("http_get_json", fetch_json_api)
+gateway_registry.register("http_post_proxy", post_to_proxy)
 
 # Initialize without the broken context dictionary
 app = FastStream(broker)

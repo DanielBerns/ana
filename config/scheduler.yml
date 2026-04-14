@@ -1,4 +1,15 @@
 # Ana Schedule Configuration
-tasks:
-  - name: fetch_daily_data
+actions:
+  - name: "fetch_proxy_info"
     cron: '0 0 * * *'
+    target_node_name: "proxy_client"
+    parameters:
+      auth_credentials: ~/ana/secrets/ana_proxy/.env
+  - name: "scrape_news":
+    cron: '0 1 * * *'
+    target_node_name: "scraper"
+    parameters:
+      urls: [ "http://web.example.org",
+              "http://web.example.org/resource/1",
+              "http://web.example.org/resource/2",
+            ]

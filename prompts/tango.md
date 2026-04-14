@@ -1,38 +1,28 @@
-### The Prompt for the New Chat
-
-**System Integration: Ana Core to Ana Proxy**
-
-Act as a Senior Software Developer. We are integrating "Ana", an internal autonomous, event-driven agent (Python, Hexagonal Architecture, RabbitMQ/FastStream, and Gel - previously known as EdgeDB -), with "ana_proxy", a public-facing Flask/SQLite REST API.
+Act as a Senior Software Developer and System Architect. We are continuing the development of a complex, distributed system and need to build the integration layer between two codebases: "Ana" and "Ana_Proxy". Both systems strictly use `uv` for dependency management.
 
 **Architectural Context & Constraints:**
-* **The Pattern:** `ana_proxy` is a strict polling mailbox. Humans enqueue tasks; Ana polls for `PENDING` tasks and pushes results/resources back. There are no webhooks or direct inbound connections to Ana.
-* **Security & I/O:** Ana authenticates to the proxy via a static API Key. The proxy enforces a strict 350 MB local filesystem limit, meaning all file transfers (resources and reports) must be handled via chunked streaming.
-* **Internal Constraints:** Ana's memory component design currently must *not* include or rely on LLMs. 
+1. **Ana (Internal System):** A highly decoupled, autonomous system built with Python, FastStream (RabbitMQ), APScheduler, and Gel (EdgeDB). It strictly follows Hexagonal Architecture and CQRS. It uses a dynamic, `asyncio`-driven `GatewayRegistry` for outbound HTTP tasks.
+2. **Ana Proxy (External System):** A public-facing Flask REST API using SQLite (SQLAlchemy) and Pydantic validation. It acts as an asynchronous "Mailbox." 
+3. **The Integration Pattern:** Ana polls the proxy for `PENDING` tasks, executes them, and pushes results/resources back. There are no direct inbound connections to Ana. Ana authenticates via a static API Key.
+4. **Strict Limitations:**
+    * **Memory/Logic:** Ana's memory component and task parsing must *not* include or rely on LLMs. Logic must be deterministic.
+    * **Storage & I/O:** The `ana_proxy` host enforces a hard 350 MB local filesystem limit. While `ana` is hosted separately and **does not** share this storage limitation, all file transfers (resources and reports) between Ana and the proxy MUST use chunked streaming to accommodate the proxy's bottleneck. This chunked streaming must be handled directly by the existing `GatewayRegistry` and `asyncio`, without spawning separate background workers.
+    * **Event Flow:** The polling tick is strictly driven by `APScheduler` generating a scheduled message (via `time_node.py`).
 
-**Our Goal:** > Design and implement the infrastructure-layer adapters within Ana to communicate with the proxy, and define the event lifecycle for the polling mechanism. 
+**Our Goal:**
+Design and implement the application-layer interfaces (Ports) and infrastructure-layer adapters within Ana to securely communicate with the proxy, handle chunked file transfers within the registry, and define the event lifecycle for the APScheduler polling mechanism.
 
-**Next Step:** > I will provide the proxy's API specification/routes and Ana's current application-layer ports. Please acknowledge this context, and then we will begin the codebase review step-by-step.
+**Step-by-Step Instructions for Our Workflow:**
+Before generating any new logic, please acknowledge your role, the architectural constraints, and ask me to proceed with Phase 1. We will work strictly in the following sequence:
 
-***
-
-### Step-by-Step Codebase Review Instructions
-
-Once the new chat is initialized and you have pasted the prompt, follow this sequence to review and build the integration. This ensures we don't violate your architectural boundaries.
-
-**Step 1: Interface Definition (The Ports)**
-* **Action:** Share Ana's application-layer interfaces (the Ports) that dictate what the core domain needs from the outside world.
-* **Review:** We must ensure the core domain knows *nothing* about HTTP, Flask, or the proxy's specific JSON structures. We will define clean abstract methods like `get_pending_tasks()` and `submit_intelligence_report()`.
-
-**Step 2: The Infrastructure Adapter (The HTTP Client)**
-* **Action:** Share or draft the implementation of the proxy client.
-* **Review:** Verify that the `uv` dependency management keeps libraries like `httpx` or `requests` strictly confined to this adapter module. We will review the payload construction, API key header injection, and ensure chunked streaming is utilized for file downloads/uploads to align with the proxy's 350 MB limit constraint. 
-
-**Step 3: The Polling & Event Bus Integration**
-* **Action:** Review how the polling mechanism interacts with RabbitMQ/FastStream.
-* **Review:** Since we are using an event-driven setup, we need to decide if polling is driven by a scheduled message (e.g., a "tick" event on the queue) or a dedicated async worker. We will review the event flow: `Poll Event -> Fetch Task -> Publish 'TaskReceived' Event to internal bus`.
-
-**Step 4: State & Memory Alignment**
-* **Action:** Review the logic that handles a completed task and updates Ana's internal state.
-* **Review:** Ensure that the parsing of task parameters and the formulation of the final report (`ReportMetadataSchema`) strictly adhere to the "no LLM" constraint in the memory loop. The integration must rely on deterministic logic and structured data mapping at this stage.
-
-
+* **Phase 1: The Proxy Contract**
+Ask me for the proxy's OpenAPI schema, route definitions, and Pydantic validation models so you understand the exact JSON shapes and authentication requirements.
+* **Phase 2: Defining the Ports**
+We will define the Application-Layer interfaces. The core domain must know nothing about HTTP, Flask, or the proxy's structures. We will draft clean abstract methods (e.g., `get_pending_tasks()`, `submit_report()`).
+* **Phase 3: Internal Architecture Review**
+Ask for Ana's current `adapters/registry.py`, `adapters/http_actions.py`, and the APScheduler configuration (`time_node.py`). You need to see how outbound HTTP calls are dispatched and how the polling tick originates.
+* **Phase 4: The Integration Plan & Adapter Implementation**
+You will generate a technical proposal detailing:
+    1. The FastStream event flow initiated by `time_node.py` (`Poll Event -> Fetch Task -> Publish 'TaskReceived'`).
+    2. The HTTP client implementation using chunked streaming for large files, constrained within the `uv` environment.
+    3. How the `GatewayRegistry` will be expanded to execute these new proxy tasks asynchronously while respecting the "no LLM" parsing rule.

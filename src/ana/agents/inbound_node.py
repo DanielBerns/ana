@@ -32,19 +32,22 @@ async def handle_inbound_command(
 ):
     """Executes multiple registered actions in parallel, saves the payloads, and emits events."""
     try:
-        tasks = command.parameters.get("tasks", [])
-        if not tasks:
-            return  # No tasks defined, exit gracefully
+        actions = command.actions
+        if not actions:
+            return  # No actions defined, exit gracefully
 
-        # 1. Prepare and execute tasks concurrently
+        target_node_name = command.target_node_name
+
+        # 1. Prepare and execute actions concurrently
         coroutines = []
-        for task in tasks:
-            action_key = task.get("action_key", "")
-            action_parameters = task.get("action_parameters", {})
+        for an_action in actions:
+            action_name = an_action.get("name", "")
+            action_cron = an_action.get("cron", "0 0 * * *")
+            action_parameters = an_action.get("parameters", {})
 
-            action = registry.table.get(action_key)
+            action = registry.table.get(target_node_name)
             if not action:
-                raise ExpectedDomainException(f"Unknown action key requested: {action_key}")
+                raise ExpectedDomainException(f"Unknown target_node_name requested: {target_node_name} - {action_name}")
 
             coroutines.append(action(action_parameters))
 
@@ -52,11 +55,12 @@ async def handle_inbound_command(
         results = await asyncio.gather(*coroutines)
 
         # 2. Process results, save to repository, and emit events
-        for (raw_payload, mime_type), task_def in zip(results, tasks):
+        for (raw_payload, mime_type), action_executed in zip(results, actions):
             metadata = {
-                "source_node": command.target_node_id,
+                "source_node": command.target_node_name,
                 "command_id": command.header.message_id,
-                "action_executed": task_def.get("action_key")
+                "action_executed": action_executed.get("name")
+                "mime_type": mime_type
             }
 
             # Save to local storage / Gel database
