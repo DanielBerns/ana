@@ -4,9 +4,9 @@ import json
 from typing import Any, AsyncIterator
 from ana.agents.inbound_node import ExpectedDomainException
 
-class ProxyClient:
+class PublicWebsiteClient:
     """
-    Adapter for Ana Proxy. Manages authentication state and exposes
+    Adapter for public websites. No need to manage authentication state and exposes
     actions compatible with GatewayRegistry's ActionCallable signature.
     """
     def __init__(self, base_url: str, username: str, password: str):
@@ -17,35 +17,17 @@ class ProxyClient:
         # Use a single client session for connection pooling
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=60.0)
 
-    async def _ensure_auth(self) -> None:
-        """Deterministically authenticates and caches the token."""
-        if self.token:
-            return
-
-        try:
-            response = await self.client.post(
-                "/api/v1/auth/login",
-                json={"username": self.username, "password": self.password}
-            )
-            response.raise_for_status()
-            self.token = response.json().get("access_token")
-        except httpx.HTTPStatusError as e:
-            raise ExpectedDomainException(f"Failed to authenticate with Ana Proxy: {e.response.status_code}")
-        except httpx.RequestError as e:
-            raise ExpectedDomainException(f"Network error during authentication: {str(e)}")
-
-    async def fetch_pending_tasks_action(self, parameters: dict[str, Any]) -> tuple[bytes, str]:
+    async def http_get_action(self, parameters: dict[str, Any]) -> tuple[bytes, str]:
         """
-        Registry Action: Polls for pending tasks.
-        Returns the raw JSON bytes and mime type.
+        Registry Action: get content from a public website (no need for auth credentials)
+        Returns raw bytes and mime type.
         """
-        await self._ensure_auth()
         headers = {"Authorization": f"Bearer {self.token}"}
 
         try:
             response = await self.client.get("/api/v1/tasks/pending", headers=headers)
             response.raise_for_status()
-            return response.content, response.headers.get("Content-Type", "application/json")
+            return response.content, response.headers.get("Content-Type", "unknown")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
                 self.token = None # Clear token on unauthorized, will retry next tick

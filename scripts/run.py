@@ -15,7 +15,7 @@ async def main():
     logger.info("Initializing Ana System...")
 
     # 1. Load the scheduled tasks, injecting the live message bus
-    load_actions_from_config(message_bus, config_path="config/scheduler.yml")
+    load_actions_from_config(message_bus, config_path="config/scheduler.yaml")
     logger.info("Scheduler tasks loaded.")
 
     # 2. Start the APScheduler in the background of the current event loop

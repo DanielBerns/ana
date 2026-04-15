@@ -10,7 +10,7 @@ from ana.ports.interfaces import MessageBusPort
 # Initialize the asyncio-compatible scheduler
 scheduler_app = AsyncIOScheduler()
 
-def load_actions_from_config(bus: MessageBusPort, config_path: str = "config/scheduler.yml"):
+def load_actions_from_config(bus: MessageBusPort, config_path: str):
     """Dynamically creates APScheduler actions based on the YAML configuration."""
     path = Path(config_path)
     if not path.exists():
@@ -25,8 +25,8 @@ def load_actions_from_config(bus: MessageBusPort, config_path: str = "config/sch
         action_target_node_name: action_def.get("target_node_name", "ErrorHandler")
         action_parameters = action_def.get("parameters", {})
         # Define the async action
-        async def dynamic_publish_action(name=action_name):
-            action_command = ExecuteIONodeCommand(
+        async def schedule_command_publication(name=action_name):
+            this_command = ExecuteIONodeCommand(
                 header=MessageHeader(
                     correlation_id=f"time_{action_name}",
                     source_component="TimeNode"
@@ -35,11 +35,11 @@ def load_actions_from_config(bus: MessageBusPort, config_path: str = "config/sch
                 target_node_id=action_target_node_id,
                 parameters=action_parameters
             )
-            await bus.publish_command(routing_key="command.ionode.inbound.fetch", command=action_command)
+            await bus.publish_command(routing_key="command.ionode.inbound.fetch", command=this_command)
 
         # Add the job to the scheduler using standard crontab parsing
         scheduler_app.add_job(
-            dynamic_publish_action,
+            schedule_command_publication,
             CronTrigger.from_crontab(action_cron_expression),
             id=action_name,
             replace_existing=True

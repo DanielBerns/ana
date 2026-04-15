@@ -5,7 +5,7 @@ actions:
     target_node_name: "proxy_client"
     parameters:
       auth_credentials: ~/ana/secrets/ana_proxy/.env
-  - name: "scrape_news":
+  - name: "scrape_news"
     cron: '0 1 * * *'
     target_node_name: "scraper"
     parameters:
