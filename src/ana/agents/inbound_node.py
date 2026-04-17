@@ -17,7 +17,12 @@ from ana.ports.interfaces import ResourceRepositoryPort, MessageBusPort
 from ana.adapters.registry import GatewayRegistry
 
 inbound_router = RabbitRouter()
-inbound_queue = RabbitQueue("ana.queue.inbound", routing_key="command.ionode.inbound.*")
+
+inbound_queue = RabbitQueue(
+    "ana.queue.inbound",
+    routing_key="ana.commands.ionode.inbound.*"
+)
+
 
 logger = structlog.get_logger("ana.agents.inbound")
 
