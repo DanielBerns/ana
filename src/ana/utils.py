@@ -1,5 +1,7 @@
+from typing import Any
 from pathlib import Path
 import yaml
+
 
 def read_yaml(file_path: Path) -> dict[str, Any]:
     if not file_path.exists():

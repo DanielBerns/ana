@@ -8,5 +8,3 @@ class Registry:
 
     def add(self, key: str, action: Callable[[dict[str, Any]], dict[str, Any]]) -> None:
         self.table[key] = action
-
-

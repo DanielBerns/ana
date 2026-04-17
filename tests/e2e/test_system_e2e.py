@@ -3,12 +3,16 @@ import json
 import asyncio
 import pytest
 
-from faststream import FastStream, TestApp, ContextRepo
-from faststream.rabbit import TestRabbitBroker, RabbitBroker, RabbitQueue
+from faststream import TestApp, ContextRepo
+from faststream.rabbit import TestRabbitBroker, RabbitQueue
 
 # Import the fully assembled app
 from ana.application import app as base_app
-from ana.adapters.faststream_bus import FastStreamMessageBus, events_exchange, commands_exchange
+from ana.adapters.faststream_bus import (
+    FastStreamMessageBus,
+    events_exchange,
+    commands_exchange,
+)
 from ana.domain.messages import ExecuteIONodeCommand, ReportCreatedEvent, MessageHeader
 from ana.adapters.local_storage import LocalResourceRepository
 from tests.integration.test_domain_agents import FakeKnowledgeGraph
@@ -17,6 +21,7 @@ from tests.integration.test_domain_agents import FakeKnowledgeGraph
 @pytest.fixture
 def temp_repository(tmp_path):
     return LocalResourceRepository(base_dir=str(tmp_path))
+
 
 @pytest.fixture
 def fake_graph():
@@ -32,6 +37,7 @@ async def test_full_system_pipeline(temp_repository, fake_graph):
 
     # We want to intercept the VERY LAST event in the chain to verify completion
     final_queue = RabbitQueue("e2e_final_queue", routing_key="event.report.created")
+
     @broker.subscriber(queue=final_queue, exchange=events_exchange)
     async def final_report_handler(msg: ReportCreatedEvent):
         pass
@@ -47,18 +53,19 @@ async def test_full_system_pipeline(temp_repository, fake_graph):
             context.set_global("graph", fake_graph)
 
         async with TestApp(base_app):
-
             # 1. Fire the initial command that starts the whole process
             command = ExecuteIONodeCommand(
-                header=MessageHeader(correlation_id="e2e-run-1", source_component="TestRunner"),
+                header=MessageHeader(
+                    correlation_id="e2e-run-1", source_component="TestRunner"
+                ),
                 target_node_id="node_1",
-                parameters={} # No failure flags, execute the happy path
+                parameters={},  # No failure flags, execute the happy path
             )
 
             await test_broker.publish(
                 command,
                 routing_key="command.ionode.inbound.fetch",
-                exchange=commands_exchange
+                exchange=commands_exchange,
             )
 
             # 2. Allow the async event loop enough time to cascade through all 4 nodes

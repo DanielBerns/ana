@@ -13,13 +13,17 @@ config_app = typer.Typer(help="Manage Ana's configuration files")
 app.add_typer(config_app, name="config")
 
 # --- Global Configuration Paths ---
-STORAGE_DIR = Path("local_storage") # Ensure this matches LocalResourceRepository base_dir
+STORAGE_DIR = Path(
+    "local_storage"
+)  # Ensure this matches LocalResourceRepository base_dir
 CONFIG_DIR = Path("config")
+
 
 # --- Pydantic Models for Config Validation ---
 class TaskConfig(BaseModel):
     name: str
     cron: str
+
 
 class SchedulerConfig(BaseModel):
     tasks: list[TaskConfig]
@@ -46,10 +50,16 @@ def init():
 
 
 @app.command("reset")
-def reset(force: bool = typer.Option(False, "--force", "-f", help="Force reset without confirmation")):
+def reset(
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Force reset without confirmation"
+    ),
+):
     """Wipe local storage and truncate the Gel knowledge graph."""
     if not force:
-        confirm = typer.confirm("This will delete all data in the local repository and Gel Graph. Are you sure?")
+        confirm = typer.confirm(
+            "This will delete all data in the local repository and Gel Graph. Are you sure?"
+        )
         if not confirm:
             typer.echo("Aborted.")
             raise typer.Exit()
@@ -75,7 +85,9 @@ def reset(force: bool = typer.Option(False, "--force", "-f", help="Force reset w
 
 
 @app.command("backup")
-def backup(output_dir: str = typer.Option("backups", help="Directory to save the backups")):
+def backup(
+    output_dir: str = typer.Option("backups", help="Directory to save the backups"),
+):
     """Backup the Gel database and local storage to a zip and dump file."""
     out_path = Path(output_dir)
     out_path.mkdir(exist_ok=True)
@@ -86,7 +98,7 @@ def backup(output_dir: str = typer.Option("backups", help="Directory to save the
     typer.echo("Backing up local storage...")
     archive_name = out_path / f"ana_storage_backup_{timestamp}"
     if STORAGE_DIR.exists():
-        shutil.make_archive(str(archive_name), 'zip', STORAGE_DIR)
+        shutil.make_archive(str(archive_name), "zip", STORAGE_DIR)
         typer.echo(f"Storage backup saved to {archive_name}.zip")
     else:
         typer.echo("No local storage found to backup.")
@@ -118,7 +130,11 @@ def config_generate():
 
 
 @config_app.command("validate")
-def config_validate(file_path: str = typer.Option("config/scheduler.yml", help="Path to scheduler config")):
+def config_validate(
+    file_path: str = typer.Option(
+        "config/scheduler.yml", help="Path to scheduler config"
+    ),
+):
     """Validate and format the scheduler configuration file."""
     path = Path(file_path)
     if not path.exists():
@@ -134,9 +150,17 @@ def config_validate(file_path: str = typer.Option("config/scheduler.yml", help="
 
         # Write it back perfectly formatted
         with open(path, "w") as f:
-            yaml.dump(validated_config.model_dump(), f, default_flow_style=False, sort_keys=False)
+            yaml.dump(
+                validated_config.model_dump(),
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+            )
 
-        typer.secho(f"✅ Configuration at {file_path} is valid and has been formatted.", fg=typer.colors.GREEN)
+        typer.secho(
+            f"✅ Configuration at {file_path} is valid and has been formatted.",
+            fg=typer.colors.GREEN,
+        )
     except ValidationError as e:
         typer.secho(f"❌ Configuration validation failed:\n{e}", fg=typer.colors.RED)
         raise typer.Exit(code=1)

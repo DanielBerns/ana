@@ -1,20 +1,14 @@
 # tests/unit/test_domain.py
 import pytest
-from datetime import datetime, timezone
 from ana.domain.messages import ExecuteIONodeCommand, MessageHeader
 from ana.domain.tuples import SPOCTuple
 
 
 def test_command_serialization():
     """Test that DTOs can be serialized to JSON and deserialized back accurately."""
-    header = MessageHeader(
-        correlation_id="corr-123",
-        source_component="test_runner"
-    )
+    header = MessageHeader(correlation_id="corr-123", source_component="test_runner")
     cmd = ExecuteIONodeCommand(
-        header=header,
-        target_node_id="node_a",
-        parameters={"fetch_limit": 100}
+        header=header, target_node_id="node_a", parameters={"fetch_limit": 100}
     )
 
     # Serialize to JSON string
@@ -32,10 +26,7 @@ def test_command_serialization():
 def test_tuple_immutability():
     """Test that Tuples are frozen and cannot be mutated."""
     tuple_obj = SPOCTuple(
-        subject="Ana",
-        predicate="is_type",
-        object_="System",
-        context="architecture"
+        subject="Ana", predicate="is_type", object_="System", context="architecture"
     )
 
     with pytest.raises(Exception) as exc_info:

@@ -2,13 +2,13 @@
 import pytest
 import os
 import shutil
-from datetime import datetime, timezone
 
 from ana.adapters.local_storage import LocalResourceRepository
 from ana.adapters.edgedb_graph import EdgeDBKnowledgeGraph
 from ana.domain.tuples import SPOCTuple
 
 # --- Local Storage Tests ---
+
 
 @pytest.fixture
 def temp_storage():
@@ -37,6 +37,7 @@ async def test_local_resource_repository(temp_storage):
 # --- EdgeDB Graph Tests ---
 # Note: These tests require a running EdgeDB instance (`edgedb project init`).
 
+
 @pytest.mark.asyncio
 async def test_edgedb_idempotent_merge():
     graph = EdgeDBKnowledgeGraph()
@@ -46,7 +47,7 @@ async def test_edgedb_idempotent_merge():
             subject="ComponentA",
             predicate="depends_on",
             object_="ComponentB",
-            context="architecture"
+            context="architecture",
         )
 
         # First insert should succeed
@@ -57,10 +58,13 @@ async def test_edgedb_idempotent_merge():
         await graph.merge_tuples([t1])
 
         # Verify it exists exactly once (querying raw EdgeQL)
-        result = await graph.query("""
+        result = await graph.query(
+            """
             select SPOCTuple { subject }
             filter .subject = 'ComponentA' and .predicate = 'depends_on';
-        """, {})
+        """,
+            {},
+        )
 
         assert len(result) == 1
         assert result[0]["subject"] == "ComponentA"
@@ -70,4 +74,3 @@ async def test_edgedb_idempotent_merge():
         await graph.client.query("delete SPOCTuple filter .subject = 'ComponentA';")
         # CRUCIAL: Close the connection pool explicitly before the event loop is destroyed
         await graph.client.aclose()
-

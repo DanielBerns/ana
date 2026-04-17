@@ -25,9 +25,7 @@ class FastStreamMessageBus(MessageBusPort):
         payload = command.model_dump(mode="json")
 
         await self.broker.publish(
-            message=payload,
-            exchange=commands_exchange,
-            routing_key=routing_key
+            message=payload, exchange=commands_exchange, routing_key=routing_key
         )
 
     async def publish_event(self, routing_key: str, event: BaseEvent) -> None:
@@ -36,7 +34,5 @@ class FastStreamMessageBus(MessageBusPort):
         payload = event.model_dump(mode="json")
 
         await self.broker.publish(
-            message=payload,
-            exchange=events_exchange,
-            routing_key=routing_key
+            message=payload, exchange=events_exchange, routing_key=routing_key
         )

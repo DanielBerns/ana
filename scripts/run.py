@@ -13,7 +13,7 @@ structlog.configure(
         structlog.contextvars.merge_contextvars,  # Merges contextvars into every log
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.dev.ConsoleRenderer(colors=True), # Formats to screen
+        structlog.dev.ConsoleRenderer(colors=True),  # Formats to screen
     ],
     wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
     logger_factory=structlog.PrintLoggerFactory(),
@@ -21,6 +21,7 @@ structlog.configure(
 )
 
 logger = structlog.get_logger("ana.runner")
+
 
 async def main():
     logger.info("Initializing Ana System...", component="system")
@@ -44,6 +45,7 @@ async def main():
         await app.run()
     except asyncio.CancelledError:
         logger.info("Shutting down Ana System gracefully...")
+
 
 if __name__ == "__main__":
     try:

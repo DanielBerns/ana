@@ -7,17 +7,19 @@ from faststream.rabbit import RabbitRouter, RabbitQueue
 from faststream.exceptions import RejectMessage
 
 from ana.adapters.faststream_bus import events_exchange
-from ana.domain.messages import (
-    KnowledgeUpdatedEvent,
-    ReportCreatedEvent,
-    MessageHeader
+from ana.domain.messages import KnowledgeUpdatedEvent, ReportCreatedEvent, MessageHeader
+from ana.ports.interfaces import (
+    ResourceRepositoryPort,
+    KnowledgeGraphPort,
+    MessageBusPort,
 )
-from ana.ports.interfaces import ResourceRepositoryPort, KnowledgeGraphPort, MessageBusPort
 
 reporter_router = RabbitRouter()
 
 # The reporter specifically listens to the reasoner's output
-reporter_queue = RabbitQueue("ana.queue.reporters", routing_key="event.knowledge.updated.reasoner")
+reporter_queue = RabbitQueue(
+    "ana.queue.reporters", routing_key="event.knowledge.updated.reasoner"
+)
 
 
 @reporter_router.subscriber(queue=reporter_queue, exchange=events_exchange)
@@ -25,7 +27,7 @@ async def handle_reasoner_update(
     event: KnowledgeUpdatedEvent,
     repository: Annotated[ResourceRepositoryPort, Context("repository")],
     graph: Annotated[KnowledgeGraphPort, Context("graph")],
-    bus: Annotated[MessageBusPort, Context("bus")]
+    bus: Annotated[MessageBusPort, Context("bus")],
 ):
     """Compiles a report from deduced knowledge and saves it to the repository."""
     try:
@@ -40,9 +42,9 @@ async def handle_reasoner_update(
         report_data = {
             "title": "Ana System Status Report",
             "triggering_event": event.header.message_id,
-            "deductions": results
+            "deductions": results,
         }
-        report_bytes = json.dumps(report_data, indent=2).encode('utf-8')
+        report_bytes = json.dumps(report_data, indent=2).encode("utf-8")
 
         # 3. Save the report via the Repository Port
         metadata = {"type": "system_report", "source_reasoner": event.reasoner_id}
@@ -52,10 +54,10 @@ async def handle_reasoner_update(
         r_event = ReportCreatedEvent(
             header=MessageHeader(
                 correlation_id=event.header.correlation_id,
-                source_component="ReporterNode"
+                source_component="ReporterNode",
             ),
             report_uri=report_uri,
-            metadata=metadata
+            metadata=metadata,
         )
         await bus.publish_event(routing_key="event.report.created", event=r_event)
 

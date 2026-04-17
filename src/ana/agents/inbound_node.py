@@ -11,7 +11,7 @@ from ana.domain.messages import (
     ExecuteIONodeCommand,
     ResourceCreatedEvent,
     IONodeFailureEvent,
-    MessageHeader
+    MessageHeader,
 )
 from ana.ports.interfaces import ResourceRepositoryPort, MessageBusPort
 from ana.adapters.registry import GatewayRegistry
@@ -19,25 +19,23 @@ from ana.adapters.registry import GatewayRegistry
 inbound_router = RabbitRouter()
 
 inbound_queue = RabbitQueue(
-    "ana.queue.inbound",
-    routing_key="ana.commands.ionode.inbound.*"
+    "ana.queue.inbound", routing_key="ana.commands.ionode.inbound.*"
 )
 
 
 logger = structlog.get_logger("ana.agents.inbound")
 
+
 class ExpectedDomainException(Exception):
     pass
 
-@inbound_router.subscriber(
-    queue=inbound_queue,
-    exchange=commands_exchange
-)
+
+@inbound_router.subscriber(queue=inbound_queue, exchange=commands_exchange)
 async def handle_inbound_command(
     command: ExecuteIONodeCommand,
     registry: Annotated[GatewayRegistry, Context("registry")],
     repository: Annotated[ResourceRepositoryPort, Context("repository")],
-    bus: Annotated[MessageBusPort, Context("bus")]
+    bus: Annotated[MessageBusPort, Context("bus")],
 ):
     # 1. FIXED: Bind using target_node_name
     structlog.contextvars.bind_contextvars(target_node_name=command.target_node_name)
@@ -57,11 +55,15 @@ async def handle_inbound_command(
             # 4. FIXED: Look up the callable by action_name, not the node name
             action = registry.table.get(action_name)
             if not action:
-                raise ExpectedDomainException(f"Unknown action requested: {action_name} for node {target_node_name}")
+                raise ExpectedDomainException(
+                    f"Unknown action requested: {action_name} for node {target_node_name}"
+                )
 
             coroutines.append(action(action_parameters))
 
-        logger.debug("Executing inbound actions concurrently", target_node_name=target_node_name)
+        logger.debug(
+            "Executing inbound actions concurrently", target_node_name=target_node_name
+        )
         results = await asyncio.gather(*coroutines)
 
         # 5. FIXED: Zip against command.actions
@@ -71,20 +73,24 @@ async def handle_inbound_command(
                 "command_id": command.header.message_id,
                 # 6. FIXED: Access Pydantic attribute
                 "action_executed": action_executed.name,
-                "mime_type": mime_type
+                "mime_type": mime_type,
             }
 
             resource_uri = await repository.save(raw_payload, metadata)
-            logger.info("Resource saved successfully", resource_uri=resource_uri, mime_type=mime_type)
+            logger.info(
+                "Resource saved successfully",
+                resource_uri=resource_uri,
+                mime_type=mime_type,
+            )
 
             event = ResourceCreatedEvent(
                 header=MessageHeader(
                     correlation_id=command.header.correlation_id,
-                    source_component=command.target_node_name
+                    source_component=command.target_node_name,
                 ),
                 resource_uri=resource_uri,
                 mime_type=mime_type,
-                metadata=metadata
+                metadata=metadata,
             )
             await bus.publish_event(routing_key="event.resource.created", event=event)
             logger.debug("Emitted ResourceCreatedEvent")
@@ -94,10 +100,10 @@ async def handle_inbound_command(
         failure_event = IONodeFailureEvent(
             header=MessageHeader(
                 correlation_id=command.header.correlation_id,
-                source_component=command.target_node_name
+                source_component=command.target_node_name,
             ),
             node_id=command.target_node_name,
-            error_reason=str(e)
+            error_reason=str(e),
         )
         await bus.publish_event(routing_key="event.ionode.failed", event=failure_event)
 

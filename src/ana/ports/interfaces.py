@@ -8,11 +8,9 @@ from ana.domain.tuples import Tuple4
 class MessageBusPort(Protocol):
     """Outbound port for publishing events and commands to the broker."""
 
-    async def publish_event(self, routing_key: str, event: BaseEvent) -> None:
-        ...
+    async def publish_event(self, routing_key: str, event: BaseEvent) -> None: ...
 
-    async def publish_command(self, routing_key: str, command: BaseCommand) -> None:
-        ...
+    async def publish_command(self, routing_key: str, command: BaseCommand) -> None: ...
 
 
 class ResourceRepositoryPort(Protocol):
@@ -34,6 +32,8 @@ class KnowledgeGraphPort(Protocol):
         """Idempotently writes 4-tuples. Must not duplicate existing data."""
         ...
 
-    async def query(self, query_string: str, parameters: dict[str, Any]) -> list[dict[str, Any]]:
+    async def query(
+        self, query_string: str, parameters: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Executes read queries for Reasoner pathfinding and rule engines."""
         ...

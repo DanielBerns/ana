@@ -25,6 +25,10 @@ dev = [
     "testcontainers>=4.14.2",
 ]
 
+[tool.ruff]
+# Exclude specific directories for both linting and formatting
+extend-exclude = ["build", "dist", "prompts"]
+
 [build-system]
 requires = ["uv_build>=0.10.2,<0.11.0"]
 build-backend = "uv_build"

@@ -10,16 +10,24 @@ from ana.adapters.faststream_bus import events_exchange
 from ana.domain.messages import (
     ResourceCreatedEvent,
     KnowledgeUpdatedEvent,
-    MessageHeader
+    MessageHeader,
 )
 from ana.domain.tuples import SPOCTuple
-from ana.ports.interfaces import ResourceRepositoryPort, KnowledgeGraphPort, MessageBusPort
+from ana.ports.interfaces import (
+    ResourceRepositoryPort,
+    KnowledgeGraphPort,
+    MessageBusPort,
+)
 
 domain_router = RabbitRouter()
 
 # Define the queues. The Reasoner uses a wildcard '#' to catch all knowledge updates.
-processor_queue = RabbitQueue("ana.queue.processors", routing_key="event.resource.created")
-reasoner_queue = RabbitQueue("ana.queue.reasoners", routing_key="event.knowledge.updated.#")
+processor_queue = RabbitQueue(
+    "ana.queue.processors", routing_key="event.resource.created"
+)
+reasoner_queue = RabbitQueue(
+    "ana.queue.reasoners", routing_key="event.knowledge.updated.#"
+)
 
 
 @domain_router.subscriber(queue=processor_queue, exchange=events_exchange)
@@ -27,7 +35,7 @@ async def handle_resource_created(
     event: ResourceCreatedEvent,
     repository: Annotated[ResourceRepositoryPort, Context("repository")],
     graph: Annotated[KnowledgeGraphPort, Context("graph")],
-    bus: Annotated[MessageBusPort, Context("bus")]
+    bus: Annotated[MessageBusPort, Context("bus")],
 ):
     """Parses raw data, creates 4-tuples, writes to the graph, and emits a Knowledge event."""
     try:
@@ -43,7 +51,7 @@ async def handle_resource_created(
             subject=event.header.source_component,
             predicate="produced_data_status",
             object_=status_value,
-            context="processor_ingestion"
+            context="processor_ingestion",
         )
 
         # 3. Idempotently write to the Knowledge Graph
@@ -53,12 +61,14 @@ async def handle_resource_created(
         k_event = KnowledgeUpdatedEvent(
             header=MessageHeader(
                 correlation_id=event.header.correlation_id,
-                source_component="ProcessorNode"
+                source_component="ProcessorNode",
             ),
             subgraph_id="processor_ingestion",
-            tuple_count=1
+            tuple_count=1,
         )
-        await bus.publish_event(routing_key="event.knowledge.updated.processor", event=k_event)
+        await bus.publish_event(
+            routing_key="event.knowledge.updated.processor", event=k_event
+        )
 
     except Exception as e:
         # Explicit NACK on unexpected failure
@@ -69,7 +79,7 @@ async def handle_resource_created(
 async def handle_knowledge_updated(
     event: KnowledgeUpdatedEvent,
     graph: Annotated[KnowledgeGraphPort, Context("graph")],
-    bus: Annotated[MessageBusPort, Context("bus")]
+    bus: Annotated[MessageBusPort, Context("bus")],
 ):
     """Queries the graph, runs deterministic rules, deduces new tuples, and updates the graph."""
     try:
@@ -92,7 +102,7 @@ async def handle_knowledge_updated(
                 subject=res["subject"],
                 predicate="is_state",
                 object_="reliable",
-                context="reasoner_deduction"
+                context="reasoner_deduction",
             )
             new_tuples.append(deduced_tuple)
 
@@ -104,13 +114,15 @@ async def handle_knowledge_updated(
             k_event = KnowledgeUpdatedEvent(
                 header=MessageHeader(
                     correlation_id=event.header.correlation_id,
-                    source_component="RuleBasedReasoner"
+                    source_component="RuleBasedReasoner",
                 ),
                 subgraph_id="reasoner_deduction",
                 reasoner_id="RuleBasedReasoner",
-                tuple_count=len(new_tuples)
+                tuple_count=len(new_tuples),
             )
-            await bus.publish_event(routing_key="event.knowledge.updated.reasoner", event=k_event)
+            await bus.publish_event(
+                routing_key="event.knowledge.updated.reasoner", event=k_event
+            )
 
     except Exception as e:
         raise RejectMessage() from e

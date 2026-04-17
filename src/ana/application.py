@@ -20,19 +20,23 @@ from ana.adapters.web_client import PublicWebsiteClient
 # Utils
 from ana.utils import read_yaml
 
-from ana.utils import read_yaml
+
 
 # 1. Define the middleware FIRST
 class StructlogMiddleware(BaseMiddleware):
     async def on_receive(self):
         structlog.contextvars.clear_contextvars()
         headers = self.message.headers
-        correlation_id = headers.get("correlation_id") or headers.get("X-Correlation-ID") or str(uuid.uuid4())
+        correlation_id = (
+            headers.get("correlation_id")
+            or headers.get("X-Correlation-ID")
+            or str(uuid.uuid4())
+        )
         structlog.contextvars.bind_contextvars(
-            correlation_id=correlation_id,
-            message_id=self.message.message_id
+            correlation_id=correlation_id, message_id=self.message.message_id
         )
         return await super().on_receive()
+
 
 # 2. Instantiate the broker ONCE, with the middleware attached
 broker = RabbitBroker("amqp://localhost:5672/", middlewares=(StructlogMiddleware,))
@@ -53,18 +57,21 @@ gateway_registry = GatewayRegistry()
 proxy_client = ProxyClient(
     base_url=ana_secrets_proxy_credentials.get("base_url", "http://127.0.0.1:5000"),
     username=ana_secrets_proxy_credentials.get("username", ""),
-    password=ana_secrets_proxy_credentials.get("password", "")
+    password=ana_secrets_proxy_credentials.get("password", ""),
 )
 # 2. Instantiate the web client
 web_client = PublicWebsiteClient()
 
 # 3. FIX: Register the actions mapping EXACTLY to the names in scheduler.yaml
 gateway_registry.register("fetch_proxy_info", proxy_client.fetch_pending_tasks_action)
-gateway_registry.register("proxy_upload_report", proxy_client.upload_report_stream_action)
+gateway_registry.register(
+    "proxy_upload_report", proxy_client.upload_report_stream_action
+)
 gateway_registry.register("scrape_news_ambito", web_client.http_get_action)
 gateway_registry.register("scrape_news_infobae", web_client.http_get_action)
 
 app = FastStream(broker)
+
 
 @app.on_startup
 async def setup_context(context: ContextRepo):
