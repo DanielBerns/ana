@@ -21,16 +21,22 @@ class FastStreamMessageBus(MessageBusPort):
 
     async def publish_command(self, routing_key: str, command: BaseCommand) -> None:
         """Publishes a command to the commands topic exchange."""
+        # Convert the Pydantic model to a JSON-serializable dictionary
+        payload = command.model_dump(mode="json")
+
         await self.broker.publish(
-            message=command,
+            message=payload,
             exchange=commands_exchange,
             routing_key=routing_key
         )
 
     async def publish_event(self, routing_key: str, event: BaseEvent) -> None:
         """Publishes an immutable historical fact to the events topic exchange."""
+        # Convert the Pydantic model to a JSON-serializable dictionary
+        payload = event.model_dump(mode="json")
+
         await self.broker.publish(
-            message=event,
+            message=payload,
             exchange=events_exchange,
             routing_key=routing_key
         )

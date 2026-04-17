@@ -1,8 +1,8 @@
-# ana/agents/inbound_node.py
 import asyncio
 from typing import Annotated
+import structlog
 
-from faststream import Context, Depends
+from faststream import Context
 from faststream.rabbit import RabbitRouter, RabbitQueue
 from faststream.exceptions import RejectMessage
 
@@ -14,63 +14,88 @@ from ana.domain.messages import (
     MessageHeader
 )
 from ana.ports.interfaces import ResourceRepositoryPort, MessageBusPort
+from ana.adapters.registry import GatewayRegistry
 
-# Define the router and the queue with our DLX configuration
 inbound_router = RabbitRouter()
 inbound_queue = RabbitQueue("ana.queue.inbound", routing_key="command.ionode.inbound.*")
 
+logger = structlog.get_logger("ana.agents.inbound")
 
 class ExpectedDomainException(Exception):
-    """An expected failure (e.g., a 404 from an external API)."""
     pass
 
-
-@inbound_router.subscriber(queue=inbound_queue, exchange=commands_exchange)
+@inbound_router.subscriber(
+    queue=inbound_queue,
+    exchange=commands_exchange
+)
 async def handle_inbound_command(
     command: ExecuteIONodeCommand,
-    # FastStream automatically injects these from the app context
+    registry: Annotated[GatewayRegistry, Context("registry")],
     repository: Annotated[ResourceRepositoryPort, Context("repository")],
     bus: Annotated[MessageBusPort, Context("bus")]
 ):
-    """Executes the fetch, saves the payload, and emits an event."""
+    # 1. FIXED: Bind using target_node_name
+    structlog.contextvars.bind_contextvars(target_node_name=command.target_node_name)
+
+    logger.info("Received ExecuteIONodeCommand", actions_count=len(command.actions))
+
     try:
-        # 1. Simulate fetching data from an external source based on command parameters
-        if command.parameters.get("simulate_fatal_error"):
-            # Simulate a database crash or out-of-memory error
-            raise RuntimeError("Unexpected fatal system state!")
+        target_node_name = command.target_node_name
+        coroutines = []
 
-        if command.parameters.get("simulate_api_down"):
-            # Simulate an expected, handled domain failure
-            raise ExpectedDomainException("External API returned 503 Unavailable.")
+        # 2. FIXED: Iterate over command.actions
+        for an_action in command.actions:
+            # 3. FIXED: Access Pydantic attributes via dot notation
+            action_name = an_action.name
+            action_parameters = an_action.parameters
 
-        # Simulate a successful fetch payload
-        raw_payload = b'{"status": "success", "data": "Sample external data"}'
-        mime_type = "application/json"
+            # 4. FIXED: Look up the callable by action_name, not the node name
+            action = registry.table.get(action_name)
+            if not action:
+                raise ExpectedDomainException(f"Unknown action requested: {action_name} for node {target_node_name}")
 
-        # 2. Save to the Resource Repository
-        metadata = {"source_node": command.target_node_id, "command_id": command.header.message_id}
-        resource_uri = await repository.save(raw_payload, metadata)
+            coroutines.append(action(action_parameters))
 
-        # 3. Emit the ResourceCreatedEvent
-        event = ResourceCreatedEvent(
-            header=MessageHeader(correlation_id=command.header.correlation_id, source_component=command.target_node_id),
-            resource_uri=resource_uri,
-            mime_type=mime_type,
-            metadata=metadata
-        )
-        await bus.publish_event(routing_key="event.resource.created", event=event)
+        logger.debug("Executing inbound actions concurrently", target_node_name=target_node_name)
+        results = await asyncio.gather(*coroutines)
+
+        # 5. FIXED: Zip against command.actions
+        for (raw_payload, mime_type), action_executed in zip(results, command.actions):
+            metadata = {
+                "source_node": command.target_node_name,
+                "command_id": command.header.message_id,
+                # 6. FIXED: Access Pydantic attribute
+                "action_executed": action_executed.name,
+                "mime_type": mime_type
+            }
+
+            resource_uri = await repository.save(raw_payload, metadata)
+            logger.info("Resource saved successfully", resource_uri=resource_uri, mime_type=mime_type)
+
+            event = ResourceCreatedEvent(
+                header=MessageHeader(
+                    correlation_id=command.header.correlation_id,
+                    source_component=command.target_node_name
+                ),
+                resource_uri=resource_uri,
+                mime_type=mime_type,
+                metadata=metadata
+            )
+            await bus.publish_event(routing_key="event.resource.created", event=event)
+            logger.debug("Emitted ResourceCreatedEvent")
 
     except ExpectedDomainException as e:
-        # Expected failure: Emit IONodeFailureEvent and halt.
-        # The message is acknowledged normally so it leaves the queue.
+        logger.warning("Expected domain failure encountered", error_reason=str(e))
         failure_event = IONodeFailureEvent(
-            header=MessageHeader(correlation_id=command.header.correlation_id, source_component=command.target_node_id),
-            node_id=command.target_node_id,
+            header=MessageHeader(
+                correlation_id=command.header.correlation_id,
+                source_component=command.target_node_name
+            ),
+            node_id=command.target_node_name,
             error_reason=str(e)
         )
         await bus.publish_event(routing_key="event.ionode.failed", event=failure_event)
 
     except Exception as e:
-        # UNEXPECTED STATE: Explicit NACK
-        # FastStream's RejectMessage routes it to the Dead Letter Exchange
+        logger.error("Unexpected error, explicit NACK to DLX", exc_info=True)
         raise RejectMessage() from e

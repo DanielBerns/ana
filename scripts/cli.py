@@ -107,11 +107,11 @@ def backup(output_dir: str = typer.Option("backups", help="Directory to save the
 def config_generate():
     """Scaffold default YAML configuration files."""
     CONFIG_DIR.mkdir(exist_ok=True)
-    default_config = CONFIG_DIR / "scheduler.yml"
+    default_config = CONFIG_DIR / "scheduler.yaml"
     if not default_config.exists():
         with open(default_config, "w") as f:
             f.write("# Ana Schedule Configuration\n")
-            f.write("tasks:\n  - name: fetch_daily_data\n    cron: '0 0 * * *'\n")
+            f.write("actions:\n  - name: fetch_daily_data\n    cron: '0 0 * * *'\n")
         typer.echo(f"Generated default config at {default_config}")
     else:
         typer.echo(f"Config already exists at {default_config}")

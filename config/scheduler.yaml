@@ -1,0 +1,24 @@
+# Ana Schedule Configuration
+nodes:
+  - target_node_name: "proxy_client"
+    actions:
+      - name: "fetch_proxy_info"
+        cron: "*/3 * * * *"
+        parameters:
+          auth_credentials: "~/ana/secrets/ana_proxy/credentials.yaml"
+
+  - target_node_name: "scraper"
+    actions:
+      - name: "scrape_news_ambito"
+        cron: "*/10 * * * *"
+        parameters:
+          urls:
+            - "https://www.ambito.com/rss/pages/ultimas-noticias.xml"
+            - "https://www.ambito.com/rss/pages/economia.xml"
+            - "https://www.ambito.com/rss/pages/finanzas.xml"
+            - "https://www.ambito.com/rss/pages/politica.xml"
+      - name: "scrape_news_infobae"
+        cron: "*/15 * * * *"
+        parameters:
+          urls:
+            - "https://www.infobae.com/feeds/rss/"
