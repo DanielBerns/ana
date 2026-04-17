@@ -1,6 +1,6 @@
-# ana/agents/inbound_node.py
 import asyncio
 from typing import Annotated
+import structlog
 
 from faststream import Context
 from faststream.rabbit import RabbitRouter, RabbitQueue
@@ -19,74 +19,83 @@ from ana.adapters.registry import GatewayRegistry
 inbound_router = RabbitRouter()
 inbound_queue = RabbitQueue("ana.queue.inbound", routing_key="command.ionode.inbound.*")
 
+logger = structlog.get_logger("ana.agents.inbound")
+
 class ExpectedDomainException(Exception):
-    """An expected failure (e.g., a 404 from an external API)."""
     pass
 
-@inbound_router.subscriber(queue=inbound_queue, exchange=commands_exchange)
+@inbound_router.subscriber(
+    queue=inbound_queue,
+    exchange=commands_exchange
+)
 async def handle_inbound_command(
     command: ExecuteIONodeCommand,
     registry: Annotated[GatewayRegistry, Context("registry")],
     repository: Annotated[ResourceRepositoryPort, Context("repository")],
     bus: Annotated[MessageBusPort, Context("bus")]
 ):
-    """Executes multiple registered actions in parallel, saves the payloads, and emits events."""
+    # 1. FIXED: Bind using target_node_name
+    structlog.contextvars.bind_contextvars(target_node_name=command.target_node_name)
+
+    logger.info("Received ExecuteIONodeCommand", actions_count=len(command.actions))
+
     try:
-        actions = command.actions
-        if not actions:
-            return  # No actions defined, exit gracefully
-
         target_node_name = command.target_node_name
-
-        # 1. Prepare and execute actions concurrently
         coroutines = []
-        for an_action in actions:
-            action_name = an_action.get("name", "")
-            action_cron = an_action.get("cron", "0 0 * * *")
-            action_parameters = an_action.get("parameters", {})
 
-            action = registry.table.get(target_node_name)
+        # 2. FIXED: Iterate over command.actions
+        for an_action in command.actions:
+            # 3. FIXED: Access Pydantic attributes via dot notation
+            action_name = an_action.name
+            action_parameters = an_action.parameters
+
+            # 4. FIXED: Look up the callable by action_name, not the node name
+            action = registry.table.get(action_name)
             if not action:
-                raise ExpectedDomainException(f"Unknown target_node_name requested: {target_node_name} - {action_name}")
+                raise ExpectedDomainException(f"Unknown action requested: {action_name} for node {target_node_name}")
 
             coroutines.append(action(action_parameters))
 
-        # Run all prepared HTTP actions in parallel
+        logger.debug("Executing inbound actions concurrently", target_node_name=target_node_name)
         results = await asyncio.gather(*coroutines)
 
-        # 2. Process results, save to repository, and emit events
-        for (raw_payload, mime_type), action_executed in zip(results, actions):
+        # 5. FIXED: Zip against command.actions
+        for (raw_payload, mime_type), action_executed in zip(results, command.actions):
             metadata = {
                 "source_node": command.target_node_name,
                 "command_id": command.header.message_id,
-                "action_executed": action_executed.get("name")
+                # 6. FIXED: Access Pydantic attribute
+                "action_executed": action_executed.name,
                 "mime_type": mime_type
             }
 
-            # Save to local storage / Gel database
             resource_uri = await repository.save(raw_payload, metadata)
+            logger.info("Resource saved successfully", resource_uri=resource_uri, mime_type=mime_type)
 
-            # Emit the ResourceCreatedEvent
             event = ResourceCreatedEvent(
                 header=MessageHeader(
                     correlation_id=command.header.correlation_id,
-                    source_component=command.target_node_id
+                    source_component=command.target_node_name
                 ),
                 resource_uri=resource_uri,
                 mime_type=mime_type,
                 metadata=metadata
             )
             await bus.publish_event(routing_key="event.resource.created", event=event)
+            logger.debug("Emitted ResourceCreatedEvent")
 
     except ExpectedDomainException as e:
-        # Expected failure: Emit IONodeFailureEvent and halt.
+        logger.warning("Expected domain failure encountered", error_reason=str(e))
         failure_event = IONodeFailureEvent(
-            header=MessageHeader(correlation_id=command.header.correlation_id, source_component=command.target_node_id),
-            node_id=command.target_node_id,
+            header=MessageHeader(
+                correlation_id=command.header.correlation_id,
+                source_component=command.target_node_name
+            ),
+            node_id=command.target_node_name,
             error_reason=str(e)
         )
         await bus.publish_event(routing_key="event.ionode.failed", event=failure_event)
 
     except Exception as e:
-        # UNEXPECTED STATE: Explicit NACK to DLX
+        logger.error("Unexpected error, explicit NACK to DLX", exc_info=True)
         raise RejectMessage() from e

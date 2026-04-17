@@ -1,65 +1,55 @@
-# ana/adapters/proxy_client.py
 import httpx
-import json
-from typing import Any, AsyncIterator
+from typing import Any
+import structlog
+
 from ana.agents.inbound_node import ExpectedDomainException
+
+logger = structlog.get_logger("ana.adapters.web_client")
 
 class PublicWebsiteClient:
     """
     Adapter for public websites. No need to manage authentication state and exposes
     actions compatible with GatewayRegistry's ActionCallable signature.
     """
-    def __init__(self, base_url: str, username: str, password: str):
+    def __init__(self, base_url: str = ""):
+        # base_url can be empty if full URLs are passed via parameters
         self.base_url = base_url
-        self.username = username
-        self.password = password
-        self.token: str | None = None
-        # Use a single client session for connection pooling
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=60.0)
+
+    def _get_trace_headers(self) -> dict[str, str]:
+        context = structlog.contextvars.get_contextvars()
+        correlation_id = context.get("correlation_id")
+        return {"X-Correlation-ID": str(correlation_id)} if correlation_id else {}
 
     async def http_get_action(self, parameters: dict[str, Any]) -> tuple[bytes, str]:
         """
         Registry Action: get content from a public website (no need for auth credentials)
-        Returns raw bytes and mime type.
+        Returns raw bytes and mime type. Expects 'url' in parameters.
         """
-        headers = {"Authorization": f"Bearer {self.token}"}
+        target_url = parameters.get("url")
+        if not target_url:
+            logger.error("Missing 'url' in parameters dictionary")
+            raise ExpectedDomainException("Missing 'url' in parameters to fetch public website.")
+
+        # Optional: Send our correlation ID. Some CDNs log custom headers, which helps if we need to debug edge issues.
+        headers = self._get_trace_headers()
+
+        logger.info("Fetching content from public website", target_url=target_url)
 
         try:
-            response = await self.client.get("/api/v1/tasks/pending", headers=headers)
+            response = await self.client.get(target_url, headers=headers)
             response.raise_for_status()
-            return response.content, response.headers.get("Content-Type", "unknown")
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                self.token = None # Clear token on unauthorized, will retry next tick
-            raise ExpectedDomainException(f"Failed to fetch tasks: {e.response.status_code}")
 
-    async def upload_report_stream_action(self, parameters: dict[str, Any]) -> tuple[bytes, str]:
-        """
-        Registry Action: Streams a large report file UP to the proxy.
-        Receives an AsyncIterator via parameters to protect proxy memory.
-        Returns the proxy's small JSON confirmation.
-        """
-        await self._ensure_auth()
-
-        file_stream: AsyncIterator[bytes] = parameters.get("file_stream")
-        metadata: dict[str, Any] = parameters.get("metadata", {})
-
-        if not file_stream:
-            raise ExpectedDomainException("Missing 'file_stream' in parameters.")
-
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "X-Report-Metadata": json.dumps(metadata) # Passing metadata via header
-        }
-
-        try:
-            # httpx automatically uses Transfer-Encoding: chunked when content is an AsyncIterator
-            response = await self.client.post(
-                "/api/v1/reports",
-                content=file_stream,
-                headers=headers
+            logger.debug(
+                "Successfully fetched public content",
+                target_url=target_url,
+                bytes_received=len(response.content)
             )
-            response.raise_for_status()
-            return response.content, response.headers.get("Content-Type", "application/json")
+            return response.content, response.headers.get("Content-Type", "application/octet-stream")
+
         except httpx.HTTPStatusError as e:
-            raise ExpectedDomainException(f"Report upload failed: {e.response.status_code}")
+            logger.warning("HTTP error fetching public website", target_url=target_url, status_code=e.response.status_code)
+            raise ExpectedDomainException(f"Failed to fetch public URL {target_url}: {e.response.status_code}")
+        except httpx.RequestError as e:
+            logger.error("Network error connecting to public website", target_url=target_url, error=str(e))
+            raise ExpectedDomainException(f"Network error: {str(e)}")
